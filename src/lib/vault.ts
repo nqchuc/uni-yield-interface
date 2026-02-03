@@ -1,4 +1,4 @@
-import { readContract } from "viem";
+import { readContract } from "viem/actions";
 import type { PublicClient } from "viem";
 import uniyieldVaultAbi from "@/abis/uniyieldVaultUI.abi.json";
 import {
@@ -247,9 +247,11 @@ export async function getUserBalance(
   const shares = await readFromChain<bigint>(publicClient, "balanceOf", [
     user as `0x${string}`,
   ]);
-  const usdcValue = await readFromChain<bigint>(publicClient, "convertToAssets", [
-    shares,
-  ]);
+  const usdcValue = await readFromChain<bigint>(
+    publicClient,
+    "convertToAssets",
+    [shares]
+  );
   return { shares, usdcValue };
 }
 
