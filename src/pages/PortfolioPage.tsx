@@ -1,12 +1,7 @@
 import { MetricCard } from "@/components/MetricCard";
 import { AllocationBar } from "@/components/AllocationBar";
 import { ActivityTable } from "@/components/ActivityTable";
-
-const allocations = [
-  { protocol: "Aave", percentage: 0 },
-  { protocol: "Morpho", percentage: 100 },
-  { protocol: "Compound", percentage: 0 },
-];
+import { useVaultData, usePortfolioVaultMetrics } from "@/hooks/useVaultData";
 
 const activities = [
   {
@@ -30,9 +25,17 @@ const activities = [
 ];
 
 export default function PortfolioPage() {
+  const { allocations, isLoading: allocationsLoading } = useVaultData();
+  const {
+    sharesFormatted,
+    usdcFormatted,
+    currentAPY,
+    activeProtocol,
+    isLoading: metricsLoading,
+  } = usePortfolioVaultMetrics(null);
+
   return (
     <div className="max-w-4xl mx-auto animate-fade-in">
-      {/* Header */}
       <div className="mb-8">
         <h1 className="text-2xl font-semibold tracking-tight text-foreground">
           Portfolio
@@ -42,33 +45,41 @@ export default function PortfolioPage() {
         </p>
       </div>
 
-      {/* Overview Metrics */}
       <section className="mb-8">
         <h2 className="infra-label mb-4">Overview</h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <MetricCard label="Vault Shares" value="17,477.08" subValue="uyUSDC" />
+          <MetricCard
+            label="Vault Shares"
+            value={metricsLoading ? "…" : sharesFormatted}
+            subValue="uyUSDC"
+          />
           <MetricCard
             label="USDC Value"
-            value="$17,523.42"
-            subValue="+$46.34 earned"
+            value={metricsLoading ? "…" : `$${usdcFormatted}`}
+            subValue=""
           />
-          <MetricCard label="Current APY" value="3.88%" highlight />
-          <MetricCard label="Active Protocol" value="Morpho" />
+          <MetricCard
+            label="Current APY"
+            value={metricsLoading ? "…" : currentAPY}
+            highlight
+          />
+          <MetricCard
+            label="Active Protocol"
+            value={metricsLoading ? "…" : activeProtocol}
+          />
         </div>
       </section>
 
-      {/* Allocation */}
       <section className="mb-8">
         <h2 className="infra-label mb-4">Allocation</h2>
         <div className="infra-card p-6">
-          <AllocationBar allocations={allocations} />
+          <AllocationBar allocations={allocationsLoading ? [] : allocations} />
           <p className="mt-4 text-xs text-muted-foreground">
             Allocation updates automatically based on yield conditions.
           </p>
         </div>
       </section>
 
-      {/* Activity */}
       <section>
         <h2 className="infra-label mb-4">Activity</h2>
         <div className="infra-card p-6">

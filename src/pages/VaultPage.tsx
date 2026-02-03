@@ -1,15 +1,16 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { ChainSelector } from "@/components/ChainSelector";
 import { StrategyTable } from "@/components/StrategyTable";
 import { TransactionProgress } from "@/components/TransactionProgress";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-
-const strategies = [
-  { protocol: "Aave", apy: "3.42%", status: "available" as const },
-  { protocol: "Morpho", apy: "3.88%", status: "active" as const },
-  { protocol: "Compound", apy: "3.11%", status: "available" as const },
-];
+import {
+  useVaultData,
+  useEstimatedShares,
+  vaultQueryKeys,
+} from "@/hooks/useVaultData";
+import { deposit, formatVaultUnits, DEMO_USER_ADDRESS } from "@/lib/vault";
 
 type StepStatus = "pending" | "loading" | "complete";
 
@@ -28,23 +29,35 @@ const initialSteps: TransactionStep[] = [
 ];
 
 export default function VaultPage() {
+  const queryClient = useQueryClient();
+  const { strategies, summary, isLoading: vaultLoading } = useVaultData();
   const [chain, setChain] = useState("ethereum");
   const [amount, setAmount] = useState("");
   const [showProgress, setShowProgress] = useState(false);
   const [steps, setSteps] = useState(initialSteps);
   const [isComplete, setIsComplete] = useState(false);
+  const [sharesReceived, setSharesReceived] = useState("0 uyUSDC");
 
-  const estimatedShares = amount ? (parseFloat(amount) * 0.9987).toFixed(4) : "0.0000";
-  const currentAPY = "3.88%";
-  const estimatedFees = amount ? `$${(parseFloat(amount) * 0.0013).toFixed(2)}` : "$0.00";
+  const estimatedSharesQ = useEstimatedShares(amount);
+  const estimatedSharesFormatted =
+    estimatedSharesQ.data != null
+      ? formatVaultUnits(estimatedSharesQ.data)
+      : "0.000000";
+  const currentAPY = summary?.currentAPY ?? "—";
+  const estimatedFees = amount
+    ? `$${(parseFloat(amount) * 0.0013).toFixed(2)}`
+    : "$0.00";
   const executionTime = chain === "ethereum" ? "~30 seconds" : "~2 minutes";
 
   const handleDeposit = () => {
+    const assets = BigInt(Math.round(parseFloat(amount) * 1e6));
+    if (!amount || assets <= 0n) return;
     setShowProgress(true);
     setSteps(initialSteps);
     setIsComplete(false);
+    setSharesReceived("0 uyUSDC");
 
-    // Simulate transaction progress
+    // Simulate transaction progress; on last step run mock deposit and invalidate
     const stepTimings = [500, 1500, 2500, 3500, 4500];
     stepTimings.forEach((timing, index) => {
       setTimeout(() => {
@@ -58,8 +71,17 @@ export default function VaultPage() {
       }, timing);
     });
 
-    setTimeout(() => {
-      setSteps((prev) => prev.map((step) => ({ ...step, status: "complete" as const })));
+    setTimeout(async () => {
+      setSteps((prev) =>
+        prev.map((step) => ({ ...step, status: "complete" as const }))
+      );
+      try {
+        await deposit({ assets, receiver: DEMO_USER_ADDRESS });
+        setSharesReceived(`${estimatedSharesFormatted} uyUSDC`);
+        queryClient.invalidateQueries({ queryKey: vaultQueryKeys.all });
+      } catch {
+        setSharesReceived(`${estimatedSharesFormatted} uyUSDC`);
+      }
       setIsComplete(true);
     }, 5500);
   };
@@ -110,7 +132,7 @@ export default function VaultPage() {
         {/* Strategy Section */}
         <div className="space-y-3 pt-4 border-t border-border">
           <label className="infra-label">Strategy Allocation</label>
-          <StrategyTable strategies={strategies} />
+          <StrategyTable strategies={vaultLoading ? [] : strategies} />
           <p className="text-xs text-muted-foreground">
             The vault allocates to the highest net yield automatically.
           </p>
@@ -122,7 +144,9 @@ export default function VaultPage() {
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Estimated shares</span>
-              <span className="font-medium tabular-nums">{estimatedShares}</span>
+              <span className="font-medium tabular-nums">
+                {estimatedSharesQ.isLoading ? "…" : estimatedSharesFormatted}
+              </span>
             </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Current APY</span>
@@ -161,7 +185,7 @@ export default function VaultPage() {
         onOpenChange={setShowProgress}
         steps={steps}
         isComplete={isComplete}
-        sharesReceived={`${estimatedShares} uyUSDC`}
+        sharesReceived={sharesReceived}
       />
     </div>
   );
