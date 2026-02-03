@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { usePublicClient } from "wagmi";
 import {
   getStrategies,
   getAllocations,
@@ -15,38 +16,51 @@ import {
 
 export const vaultQueryKeys = {
   all: ["vault"] as const,
-  strategies: () => [...vaultQueryKeys.all, "strategies"] as const,
-  allocations: () => [...vaultQueryKeys.all, "allocations"] as const,
-  summary: () => [...vaultQueryKeys.all, "summary"] as const,
-  userBalance: (user: string) =>
-    [...vaultQueryKeys.all, "balance", user] as const,
+  strategies: (chainId?: number) =>
+    [...vaultQueryKeys.all, "strategies", chainId] as const,
+  allocations: (chainId?: number) =>
+    [...vaultQueryKeys.all, "allocations", chainId] as const,
+  summary: (chainId?: number) =>
+    [...vaultQueryKeys.all, "summary", chainId] as const,
+  userBalance: (user: string, chainId?: number) =>
+    [...vaultQueryKeys.all, "balance", user, chainId] as const,
+  convertToShares: (amountStr: string, chainId?: number) =>
+    [...vaultQueryKeys.all, "convertToShares", amountStr, chainId] as const,
 };
 
 export function useVaultStrategies() {
+  const publicClient = usePublicClient();
+  const chainId = publicClient?.chain?.id;
   return useQuery({
-    queryKey: vaultQueryKeys.strategies(),
-    queryFn: getStrategies,
+    queryKey: vaultQueryKeys.strategies(chainId),
+    queryFn: () => getStrategies(publicClient ?? undefined),
   });
 }
 
 export function useVaultAllocations() {
+  const publicClient = usePublicClient();
+  const chainId = publicClient?.chain?.id;
   return useQuery({
-    queryKey: vaultQueryKeys.allocations(),
-    queryFn: getAllocations,
+    queryKey: vaultQueryKeys.allocations(chainId),
+    queryFn: () => getAllocations(publicClient ?? undefined),
   });
 }
 
 export function useVaultSummary() {
+  const publicClient = usePublicClient();
+  const chainId = publicClient?.chain?.id;
   return useQuery({
-    queryKey: vaultQueryKeys.summary(),
-    queryFn: getVaultSummary,
+    queryKey: vaultQueryKeys.summary(chainId),
+    queryFn: () => getVaultSummary(publicClient ?? undefined),
   });
 }
 
 export function useUserVaultBalance(userAddress: string | null) {
+  const publicClient = usePublicClient();
+  const chainId = publicClient?.chain?.id;
   return useQuery({
-    queryKey: vaultQueryKeys.userBalance(userAddress ?? ""),
-    queryFn: () => getUserBalance(userAddress!),
+    queryKey: vaultQueryKeys.userBalance(userAddress ?? "", chainId),
+    queryFn: () => getUserBalance(userAddress!, publicClient ?? undefined),
     enabled: !!userAddress,
   });
 }
@@ -79,10 +93,12 @@ export function useVaultData(): {
 
 /** Estimated shares for a given USDC amount (for deposit preview). */
 export function useEstimatedShares(amountStr: string) {
+  const publicClient = usePublicClient();
+  const chainId = publicClient?.chain?.id;
   const assets = parseUsdcAmount(amountStr);
   return useQuery({
-    queryKey: [...vaultQueryKeys.all, "convertToShares", amountStr],
-    queryFn: () => convertToShares(assets),
+    queryKey: vaultQueryKeys.convertToShares(amountStr, chainId),
+    queryFn: () => convertToShares(assets, publicClient ?? undefined),
     enabled: amountStr !== "" && assets > 0n,
   });
 }

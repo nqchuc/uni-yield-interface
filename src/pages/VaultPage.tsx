@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useAccount, useSwitchChain, useWriteContract } from "wagmi";
+import { toast } from "sonner";
 import { ChainSelector } from "@/components/ChainSelector";
 import { StrategyTable } from "@/components/StrategyTable";
 import { TransactionProgress } from "@/components/TransactionProgress";
@@ -10,7 +12,16 @@ import {
   useEstimatedShares,
   vaultQueryKeys,
 } from "@/hooks/useVaultData";
-import { deposit, formatVaultUnits, DEMO_USER_ADDRESS } from "@/lib/vault";
+import { VAULT_CHAIN_ID } from "@/lib/wagmi";
+import {
+  deposit,
+  formatVaultUnits,
+  DEMO_USER_ADDRESS,
+  useMockVault,
+  VAULT_ABI,
+  UNIYIELD_VAULT_ADDRESS,
+} from "@/lib/vault";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 type StepStatus = "pending" | "loading" | "complete";
 
@@ -30,13 +41,21 @@ const initialSteps: TransactionStep[] = [
 
 export default function VaultPage() {
   const queryClient = useQueryClient();
+  const { address } = useAccount();
   const { strategies, summary, isLoading: vaultLoading } = useVaultData();
   const [chain, setChain] = useState("ethereum");
+  const receiver = address ?? DEMO_USER_ADDRESS;
   const [amount, setAmount] = useState("");
   const [showProgress, setShowProgress] = useState(false);
   const [steps, setSteps] = useState(initialSteps);
   const [isComplete, setIsComplete] = useState(false);
   const [sharesReceived, setSharesReceived] = useState("0 uyUSDC");
+  const isMock = useMockVault();
+  const { chainId } = useAccount();
+  const { switchChain, isPending: isSwitchPending } = useSwitchChain();
+  const { writeContractAsync, isPending: isWritePending } = useWriteContract();
+  const isWrongChain =
+    !isMock && address != null && chainId != null && chainId !== VAULT_CHAIN_ID;
 
   const estimatedSharesQ = useEstimatedShares(amount);
   const estimatedSharesFormatted =
@@ -57,33 +76,60 @@ export default function VaultPage() {
     setIsComplete(false);
     setSharesReceived("0 uyUSDC");
 
-    // Simulate transaction progress; on last step run mock deposit and invalidate
-    const stepTimings = [500, 1500, 2500, 3500, 4500];
-    stepTimings.forEach((timing, index) => {
-      setTimeout(() => {
+    if (isMock) {
+      const stepTimings = [500, 1500, 2500, 3500, 4500];
+      stepTimings.forEach((timing, index) => {
+        setTimeout(() => {
+          setSteps((prev) =>
+            prev.map((step, i) => {
+              if (i < index) return { ...step, status: "complete" as const };
+              if (i === index) return { ...step, status: "loading" as const };
+              return step;
+            })
+          );
+        }, timing);
+      });
+      setTimeout(async () => {
         setSteps((prev) =>
-          prev.map((step, i) => {
-            if (i < index) return { ...step, status: "complete" as const };
-            if (i === index) return { ...step, status: "loading" as const };
-            return step;
-          })
+          prev.map((step) => ({ ...step, status: "complete" as const }))
         );
-      }, timing);
-    });
+        try {
+          await deposit({ assets, receiver });
+          setSharesReceived(`${estimatedSharesFormatted} uyUSDC`);
+          queryClient.invalidateQueries({ queryKey: vaultQueryKeys.all });
+        } catch {
+          setSharesReceived(`${estimatedSharesFormatted} uyUSDC`);
+        }
+        setIsComplete(true);
+      }, 5500);
+      return;
+    }
 
-    setTimeout(async () => {
-      setSteps((prev) =>
-        prev.map((step) => ({ ...step, status: "complete" as const }))
-      );
-      try {
-        await deposit({ assets, receiver: DEMO_USER_ADDRESS });
+    setSteps((prev) =>
+      prev.map((s, i) =>
+        i === 0 ? { ...s, status: "loading" as const } : s
+      )
+    );
+    writeContractAsync({
+      address: UNIYIELD_VAULT_ADDRESS as `0x${string}`,
+      abi: VAULT_ABI as never,
+      functionName: "deposit",
+      args: [assets, receiver as `0x${string}`],
+    })
+      .then(() => {
+        setSteps((prev) =>
+          prev.map((step) => ({ ...step, status: "complete" as const }))
+        );
         setSharesReceived(`${estimatedSharesFormatted} uyUSDC`);
         queryClient.invalidateQueries({ queryKey: vaultQueryKeys.all });
-      } catch {
-        setSharesReceived(`${estimatedSharesFormatted} uyUSDC`);
-      }
-      setIsComplete(true);
-    }, 5500);
+        setIsComplete(true);
+      })
+      .catch((err: unknown) => {
+        const message =
+          err instanceof Error ? err.message : "Transaction failed.";
+        toast.error(message);
+        setShowProgress(false);
+      });
   };
 
   return (
@@ -97,6 +143,25 @@ export default function VaultPage() {
           Automatically allocates across leading lending protocols.
         </p>
       </div>
+
+      {isWrongChain && (
+        <Alert variant="default" className="mb-6 border-amber-200 bg-amber-50 text-amber-900">
+          <AlertTitle>Wrong network</AlertTitle>
+          <AlertDescription className="flex flex-wrap items-center gap-2">
+            <span>
+              The vault is on Ethereum mainnet. Switch network to deposit.
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={isSwitchPending}
+              onClick={() => switchChain({ chainId: VAULT_CHAIN_ID })}
+            >
+              {isSwitchPending ? "Switching…" : "Switch to Ethereum"}
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Deposit Panel */}
       <div className="infra-card p-6 space-y-6">
@@ -167,14 +232,26 @@ export default function VaultPage() {
         <div className="pt-4">
           <Button
             onClick={handleDeposit}
-            disabled={!amount || parseFloat(amount) <= 0}
+            disabled={
+              !address ||
+              !amount ||
+              parseFloat(amount) <= 0 ||
+              isWritePending ||
+              isWrongChain
+            }
             className="w-full"
             size="lg"
           >
-            Deposit USDC
+            {isWritePending
+              ? "Confirm in wallet…"
+              : address
+                ? "Deposit USDC"
+                : "Connect wallet to deposit"}
           </Button>
           <p className="mt-3 text-center text-xs text-muted-foreground">
-            You will receive ERC-4626 vault shares on Ethereum.
+            {address
+              ? "You will receive ERC-4626 vault shares on Ethereum."
+              : "Connect your wallet to deposit."}
           </p>
         </div>
       </div>

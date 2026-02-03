@@ -1,3 +1,4 @@
+import { useAccount } from "wagmi";
 import { MetricCard } from "@/components/MetricCard";
 import { AllocationBar } from "@/components/AllocationBar";
 import { ActivityTable } from "@/components/ActivityTable";
@@ -25,6 +26,7 @@ const activities = [
 ];
 
 export default function PortfolioPage() {
+  const { address } = useAccount();
   const { allocations, isLoading: allocationsLoading } = useVaultData();
   const {
     sharesFormatted,
@@ -32,7 +34,7 @@ export default function PortfolioPage() {
     currentAPY,
     activeProtocol,
     isLoading: metricsLoading,
-  } = usePortfolioVaultMetrics(null);
+  } = usePortfolioVaultMetrics(address ?? null);
 
   return (
     <div className="max-w-4xl mx-auto animate-fade-in">
