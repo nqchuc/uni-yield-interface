@@ -2,6 +2,12 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAccount, useSwitchChain, useWriteContract } from "wagmi";
 import { toast } from "sonner";
+import {
+  convertQuoteToRoute,
+  executeRoute,
+  getQuote,
+  type RouteExtended,
+} from "@lifi/sdk";
 import { ChainSelector } from "@/components/ChainSelector";
 import { StrategyTable } from "@/components/StrategyTable";
 import { TransactionProgress } from "@/components/TransactionProgress";
@@ -12,6 +18,11 @@ import {
   useEstimatedShares,
   vaultQueryKeys,
 } from "@/hooks/useVaultData";
+import {
+  CHAIN_ID_BY_KEY,
+  LIFI_ETHEREUM_CHAIN_ID,
+  USDC_BY_CHAIN_ID,
+} from "@/lib/lifi";
 import { VAULT_CHAIN_ID } from "@/lib/wagmi";
 import {
   deposit,
@@ -54,8 +65,15 @@ export default function VaultPage() {
   const { chainId } = useAccount();
   const { switchChain, isPending: isSwitchPending } = useSwitchChain();
   const { writeContractAsync, isPending: isWritePending } = useWriteContract();
+  const [isLifiPending, setIsLifiPending] = useState(false);
+
+  const isSameChainDeposit = chain === "ethereum";
   const isWrongChain =
-    !isMock && address != null && chainId != null && chainId !== VAULT_CHAIN_ID;
+    !isMock &&
+    isSameChainDeposit &&
+    address != null &&
+    chainId != null &&
+    chainId !== VAULT_CHAIN_ID;
 
   const estimatedSharesQ = useEstimatedShares(amount);
   const estimatedSharesFormatted =
@@ -105,16 +123,102 @@ export default function VaultPage() {
       return;
     }
 
+    // Cross-chain: LiFi quote + execute (from other chain → Ethereum vault)
+    if (!isSameChainDeposit) {
+      const fromChainId = CHAIN_ID_BY_KEY[chain];
+      const fromToken = USDC_BY_CHAIN_ID[fromChainId];
+      if (!fromToken || !receiver) {
+        toast.error("Invalid chain or wallet");
+        setShowProgress(false);
+        return;
+      }
+      setIsLifiPending(true);
+      setSteps((prev) =>
+        prev.map((s, i) => (i === 0 ? { ...s, status: "loading" as const } : s))
+      );
+      getQuote({
+        fromChain: fromChainId,
+        toChain: LIFI_ETHEREUM_CHAIN_ID,
+        fromToken,
+        toToken: UNIYIELD_VAULT_ADDRESS,
+        fromAmount: assets.toString(),
+        fromAddress: receiver,
+        toAddress: receiver,
+      })
+        .then((quote) => {
+          const route = convertQuoteToRoute(quote);
+          return executeRoute(route, {
+            updateRouteHook(updatedRoute: RouteExtended) {
+              const stepsWithExecution = updatedRoute.steps.filter(
+                (s) => s.execution != null
+              );
+              const allDone = stepsWithExecution.every(
+                (s) => s.execution?.status === "DONE"
+              );
+              const anyLoading = stepsWithExecution.some(
+                (s) =>
+                  s.execution?.status === "PENDING" ||
+                  s.execution?.status === "ACTION_REQUIRED"
+              );
+              setSteps((prev) => {
+                if (allDone) {
+                  return prev.map((s) => ({
+                    ...s,
+                    status: "complete" as const,
+                  }));
+                }
+                const doneCount = stepsWithExecution.filter(
+                  (s) => s.execution?.status === "DONE"
+                ).length;
+                return prev.map((step, i) => {
+                  if (i === 0) return { ...step, status: "complete" as const };
+                  if (i <= doneCount)
+                    return { ...step, status: "complete" as const };
+                  if (i === doneCount + 1 && anyLoading)
+                    return { ...step, status: "loading" as const };
+                  return step;
+                });
+              });
+            },
+          });
+        })
+        .then((executedRoute) => {
+          const toAmount =
+            executedRoute.steps[executedRoute.steps.length - 1]?.estimate
+              ?.toAmount;
+          const sharesStr =
+            toAmount != null
+              ? formatVaultUnits(BigInt(toAmount))
+              : estimatedSharesFormatted;
+          setSharesReceived(`${sharesStr} uyUSDC`);
+          setSteps((prev) =>
+            prev.map((step) => ({ ...step, status: "complete" as const }))
+          );
+          setIsComplete(true);
+          queryClient.invalidateQueries({ queryKey: vaultQueryKeys.all });
+        })
+        .catch((err: unknown) => {
+          const message =
+            err instanceof Error ? err.message : "Cross-chain deposit failed.";
+          toast.error(message);
+          setShowProgress(false);
+        })
+        .finally(() => {
+          setIsLifiPending(false);
+        });
+      return;
+    }
+
+    // Same-chain: direct vault deposit on Ethereum
     setSteps((prev) =>
-      prev.map((s, i) =>
-        i === 0 ? { ...s, status: "loading" as const } : s
-      )
+      prev.map((s, i) => (i === 0 ? { ...s, status: "loading" as const } : s))
     );
     writeContractAsync({
       address: UNIYIELD_VAULT_ADDRESS as `0x${string}`,
       abi: VAULT_ABI as never,
       functionName: "deposit",
       args: [assets, receiver as `0x${string}`],
+      chainId: VAULT_CHAIN_ID,
     })
       .then(() => {
         setSteps((prev) =>
@@ -145,7 +249,10 @@ export default function VaultPage() {
       </div>
 
       {isWrongChain && (
-        <Alert variant="default" className="mb-6 border-amber-200 bg-amber-50 text-amber-900">
+        <Alert
+          variant="default"
+          className="mb-6 border-amber-200 bg-amber-50 text-amber-900"
+        >
           <AlertTitle>Wrong network</AlertTitle>
           <AlertDescription className="flex flex-wrap items-center gap-2">
             <span>
@@ -237,16 +344,19 @@ export default function VaultPage() {
               !amount ||
               parseFloat(amount) <= 0 ||
               isWritePending ||
+              isLifiPending ||
               isWrongChain
             }
             className="w-full"
             size="lg"
           >
-            {isWritePending
+            {isWritePending || isLifiPending
               ? "Confirm in wallet…"
               : address
+              ? isSameChainDeposit
                 ? "Deposit USDC"
-                : "Connect wallet to deposit"}
+                : "Bridge & deposit (one-click)"
+              : "Connect wallet to deposit"}
           </Button>
           <p className="mt-3 text-center text-xs text-muted-foreground">
             {address
