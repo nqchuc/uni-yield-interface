@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 48" fill="none" width="200" height="48">
+  <defs>
+    <linearGradient id="rainbow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F878A8"/>
+      <stop offset="25%" stop-color="#F8A376"/>
+      <stop offset="50%" stop-color="#3FDDC2"/>
+      <stop offset="75%" stop-color="#5C82E2"/>
+      <stop offset="100%" stop-color="#9A95F1"/>
+    </linearGradient>
+    <linearGradient id="textGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#627EEA"/>
+      <stop offset="100%" stop-color="#F8A376"/>
+    </linearGradient>
+    <marker id="arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+      <path d="M0 0l6 3-6 3V0z" fill="#5C82E2"/>
+    </marker>
+  </defs>
+  <!-- Rainbow circular arrows -->
+  <path d="M20 24a10 10 0 1 1 10-10" stroke="url(#rainbow)" stroke-width="2.5" fill="none" stroke-linecap="round" marker-end="url(#arrow)"/>
+  <path d="M30 24a10 10 0 1 1-10 10" stroke="url(#rainbow)" stroke-width="2.5" fill="none" stroke-linecap="round" marker-end="url(#arrow)" opacity="0.9"/>
+  <!-- Central hexagon -->
+  <path d="M24 14l5.2 3v6l-5.2 3-5.2-3v-6l5.2-3z" stroke="url(#rainbow)" stroke-width="1.5" fill="none"/>
+  <!-- Diamond -->
+  <path d="M24 18l3 5-3 2.5-3-2.5 3-5z" fill="url(#rainbow)" opacity="0.9"/>
+  <!-- UniYield text -->
+  <text x="50" y="32" font-family="system-ui, -apple-system, sans-serif" font-size="18" font-weight="700" fill="url(#textGradient)">UniYield</text>
+</svg>

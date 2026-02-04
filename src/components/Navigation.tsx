@@ -33,8 +33,17 @@ export function Navigation() {
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-14 items-center justify-between">
-        <Link to="/" className="flex items-center gap-2">
-          <span className="text-lg font-semibold tracking-tight text-foreground">
+        <Link to="/" className="flex min-w-0 items-center gap-2">
+          <span className="flex h-8 flex-shrink-0 items-center" aria-hidden>
+            <img
+              src="/assets/images/uniyield.svg"
+              alt="UniYield"
+              className="h-full w-auto max-h-8 object-contain object-left"
+              height={32}
+              fetchPriority="high"
+            />
+          </span>
+          <span className="truncate text-lg font-semibold tracking-tight text-foreground">
             UniYield
           </span>
         </Link>
@@ -74,10 +83,7 @@ export function Navigation() {
               >
                 {address}
               </DropdownMenuItem>
-              <DropdownMenuItem
-                className="gap-2"
-                onClick={() => disconnect()}
-              >
+              <DropdownMenuItem className="gap-2" onClick={() => disconnect()}>
                 <LogOut className="h-4 w-4" />
                 Disconnect
               </DropdownMenuItem>
