@@ -438,18 +438,14 @@ export default function VaultPage() {
             className="grid gap-3"
           >
             <div className="flex items-center space-x-2">
-              <RadioGroupItem
-                value="uniyield"
-                id="dest-uniyield"
-                disabled={vaultNotDeployed}
-              />
+              <RadioGroupItem value="uniyield" id="dest-uniyield" />
               <Label
                 htmlFor="dest-uniyield"
-                className={`flex flex-col gap-0.5 font-normal ${vaultNotDeployed ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
+                className="flex flex-col gap-0.5 font-normal cursor-pointer"
               >
                 <span>Deposit into UniYield (coming soon)</span>
                 {vaultNotDeployed && (
-                  <span className="text-xs text-muted-foreground">Vault not deployed</span>
+                  <span className="text-xs text-muted-foreground">Vault not deployed — click to preview</span>
                 )}
               </Label>
             </div>
@@ -561,6 +557,7 @@ export default function VaultPage() {
             <Button
               onClick={handleDeposit}
               disabled={
+                vaultNotDeployed ||
                 !address ||
                 !amount ||
                 parseFloat(amount) <= 0 ||
