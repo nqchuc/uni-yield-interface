@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAccount, useSwitchChain, useWriteContract } from "wagmi";
 import { toast } from "sonner";
@@ -8,11 +8,16 @@ import {
   getQuote,
   type RouteExtended,
 } from "@lifi/sdk";
+import type { Route } from "@lifi/types";
 import { ChainSelector } from "@/components/ChainSelector";
 import { StrategyTable } from "@/components/StrategyTable";
 import { TransactionProgress } from "@/components/TransactionProgress";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import {
   useVaultData,
   useEstimatedShares,
@@ -23,6 +28,7 @@ import {
   LIFI_ETHEREUM_CHAIN_ID,
   USDC_BY_CHAIN_ID,
 } from "@/lib/lifi";
+import { getQuoteBridgeToSelf, getLifiStatus } from "@/lib/lifiClient";
 import { VAULT_CHAIN_ID } from "@/lib/wagmi";
 import {
   deposit,
@@ -32,6 +38,7 @@ import {
   VAULT_ABI,
   UNIYIELD_VAULT_ADDRESS,
 } from "@/lib/vault";
+import { UNIYIELD_VAULT_ADDRESS as CONFIG_VAULT_ADDRESS } from "@/config/uniyield";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 type StepStatus = "pending" | "loading" | "complete";
@@ -50,6 +57,17 @@ const initialSteps: TransactionStep[] = [
   { id: "mint", label: "Shares minted", status: "pending" },
 ];
 
+const bridgeDebugSteps: TransactionStep[] = [
+  { id: "approve", label: "Approve USDC (if needed)", status: "pending" },
+  { id: "send", label: "Send bridge transaction", status: "pending" },
+  { id: "done", label: "Complete", status: "pending" },
+];
+
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+const vaultNotDeployed =
+  !CONFIG_VAULT_ADDRESS ||
+  CONFIG_VAULT_ADDRESS.toLowerCase() === ZERO_ADDRESS;
+
 export default function VaultPage() {
   const queryClient = useQueryClient();
   const { address } = useAccount();
@@ -66,6 +84,19 @@ export default function VaultPage() {
   const { switchChain, switchChainAsync, isPending: isSwitchPending } = useSwitchChain();
   const { writeContractAsync, isPending: isWritePending } = useWriteContract();
   const [isLifiPending, setIsLifiPending] = useState(false);
+
+  const [destinationMode, setDestinationMode] = useState<"uniyield" | "bridgeToSelf">(
+    vaultNotDeployed ? "bridgeToSelf" : "uniyield"
+  );
+  const [routes, setRoutes] = useState<Route[]>([]);
+  const [routesLoading, setRoutesLoading] = useState(false);
+  const [selectedRouteIndex, setSelectedRouteIndex] = useState(0);
+  const [bridgeSteps, setBridgeSteps] = useState(bridgeDebugSteps);
+  const [showBridgeProgress, setShowBridgeProgress] = useState(false);
+  const [bridgeComplete, setBridgeComplete] = useState(false);
+  const [bridgeTxHash, setBridgeTxHash] = useState<string | null>(null);
+  const [bridgeReceivedAmount, setBridgeReceivedAmount] = useState<string>("");
+  const [bridgeStatusPolling, setBridgeStatusPolling] = useState(false);
 
   const isSameChainDeposit = chain === "ethereum";
   const isWrongChain =
@@ -100,7 +131,87 @@ export default function VaultPage() {
     }
   };
 
+  const fetchRoutesForBridge = useCallback(async () => {
+    if (!address || !amount || parseFloat(amount) <= 0) return;
+    const fromChainId = CHAIN_ID_BY_KEY[chain];
+    const fromAmount = BigInt(Math.round(parseFloat(amount) * 1e6)).toString();
+    setRoutesLoading(true);
+    setRoutes([]);
+    try {
+      const res = await getQuoteBridgeToSelf({
+        fromChainId,
+        fromAmount,
+        fromAddress: address,
+        toAddress: address,
+      });
+      const top3 = (res.routes ?? []).slice(0, 3);
+      setRoutes(top3);
+      setSelectedRouteIndex(0);
+      if (top3.length === 0) toast.error("No routes found");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to fetch routes";
+      toast.error(msg);
+    } finally {
+      setRoutesLoading(false);
+    }
+  }, [address, amount, chain]);
+
+  const handleExecuteBridge = useCallback(async () => {
+    const route = routes[selectedRouteIndex];
+    if (!route || !address) return;
+    setShowBridgeProgress(true);
+    setBridgeComplete(false);
+    setBridgeTxHash(null);
+    setBridgeReceivedAmount("");
+    setBridgeSteps(bridgeDebugSteps.map((s) => ({ ...s, status: "pending" as const })));
+    setIsLifiPending(true);
+    try {
+      const executed = await executeRoute(route, {
+        updateRouteHook(updatedRoute: RouteExtended) {
+          const stepsWithExecution = updatedRoute.steps.filter((s) => s.execution != null);
+          const doneCount = stepsWithExecution.filter((s) => s.execution?.status === "DONE").length;
+          const anyLoading = stepsWithExecution.some(
+            (s) =>
+              s.execution?.status === "PENDING" || s.execution?.status === "ACTION_REQUIRED"
+          );
+          setBridgeSteps((prev) => {
+            const next = [...prev];
+            if (doneCount >= 1 && next[0].status !== "complete")
+              next[0] = { ...next[0], status: "complete" };
+            if (anyLoading && next[1].status !== "loading")
+              next[1] = { ...next[1], status: "loading" };
+            if (doneCount >= 1 && !anyLoading) {
+              next[1] = { ...next[1], status: "complete" };
+              next[2] = { ...next[2], status: "loading" };
+            }
+            const allDone = stepsWithExecution.every((s) => s.execution?.status === "DONE");
+            if (allDone) {
+              next[2] = { ...next[2], status: "complete" };
+            }
+            return next;
+          });
+        },
+      });
+      const lastStep = executed.steps[executed.steps.length - 1];
+      const toAmount = lastStep?.estimate?.toAmount ?? route.toAmount;
+      setBridgeReceivedAmount(toAmount);
+      setBridgeComplete(true);
+      const firstStepExecution = executed.steps[0]?.execution;
+      const firstProcessWithTx = firstStepExecution?.process?.find((p: { txHash?: string }) => p.txHash);
+      const txHash = firstProcessWithTx?.txHash ?? (firstStepExecution as { txHash?: string } | undefined)?.txHash;
+      if (txHash) setBridgeTxHash(txHash);
+      setBridgeStatusPolling(true);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Bridge failed";
+      toast.error(msg);
+      setShowBridgeProgress(false);
+    } finally {
+      setIsLifiPending(false);
+    }
+  }, [routes, selectedRouteIndex, address]);
+
   const handleDeposit = () => {
+    if (destinationMode === "bridgeToSelf") return;
     const assets = BigInt(Math.round(parseFloat(amount) * 1e6));
     if (!amount || assets <= 0n) return;
     setShowProgress(true);
@@ -306,14 +417,109 @@ export default function VaultPage() {
           </div>
         </div>
 
-        {/* Destination Section */}
-        <div className="space-y-2 pt-4 border-t border-border">
-          <label className="infra-label">Destination</label>
-          <p className="infra-value">UniYield USDC Vault (Ethereum)</p>
-          <p className="text-xs text-muted-foreground">
-            Funds are routed cross-chain and deposited automatically.
-          </p>
+        {/* Destination Mode */}
+        <div className="space-y-3 pt-4 border-t border-border">
+          <Label className="infra-label">Destination Mode</Label>
+          <RadioGroup
+            value={destinationMode}
+            onValueChange={(v) => setDestinationMode(v as "uniyield" | "bridgeToSelf")}
+            className="grid gap-3"
+          >
+            <div className="flex items-center space-x-2">
+              <RadioGroupItem
+                value="uniyield"
+                id="dest-uniyield"
+                disabled={vaultNotDeployed}
+              />
+              <Label
+                htmlFor="dest-uniyield"
+                className={`flex flex-col gap-0.5 font-normal ${vaultNotDeployed ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
+              >
+                <span>Deposit into UniYield (coming soon)</span>
+                {vaultNotDeployed && (
+                  <span className="text-xs text-muted-foreground">Vault not deployed</span>
+                )}
+              </Label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <RadioGroupItem value="bridgeToSelf" id="dest-bridge" />
+              <Label htmlFor="dest-bridge" className="flex items-center gap-2 font-normal cursor-pointer">
+                <span>Test: Bridge USDC to my Ethereum wallet</span>
+                <Badge variant="secondary" className="text-xs">LI.FI Debug Mode</Badge>
+              </Label>
+            </div>
+          </RadioGroup>
+          {destinationMode === "uniyield" && (
+            <p className="text-xs text-muted-foreground">
+              UniYield USDC Vault (Ethereum). Funds are routed cross-chain and deposited automatically.
+            </p>
+          )}
+          {destinationMode === "bridgeToSelf" && (
+            <p className="text-xs text-muted-foreground">
+              Bridge USDC from selected chain to your wallet on Ethereum. Use this to test LiFi before vault is live.
+            </p>
+          )}
         </div>
+
+        {/* Bridge-to-self: routes and execute (Debug Mode) */}
+        {destinationMode === "bridgeToSelf" && (
+          <div className="space-y-4 pt-4 border-t border-border">
+            <div className="flex items-center justify-between">
+              <Label>Routes</Label>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!address || !amount || parseFloat(amount) <= 0 || routesLoading}
+                onClick={fetchRoutesForBridge}
+              >
+                {routesLoading ? "Loading…" : "Get routes"}
+              </Button>
+            </div>
+            {routes.length > 0 && (
+              <Card>
+                <CardHeader className="py-3">
+                  <CardTitle className="text-sm">Pick a route (top 3)</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3 pt-0">
+                  <RadioGroup
+                    value={String(selectedRouteIndex)}
+                    onValueChange={(v) => setSelectedRouteIndex(Number(v))}
+                    className="grid gap-2"
+                  >
+                    {routes.map((r, i) => (
+                      <div
+                        key={r.id}
+                        className="flex items-start space-x-3 rounded-lg border p-3 hover:bg-muted/50"
+                      >
+                        <RadioGroupItem value={String(i)} id={`route-${i}`} />
+                        <Label
+                          htmlFor={`route-${i}`}
+                          className="flex-1 cursor-pointer space-y-1"
+                        >
+                          <div className="font-medium">Route {i + 1}</div>
+                          <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
+                            <span>Receive: {formatVaultUnits(BigInt(r.toAmount))} USDC</span>
+                            <span>Fees: {r.gasCostUSD ? `$${r.gasCostUSD}` : "—"}</span>
+                            <span>Steps: {r.steps.length}</span>
+                            <span>Est. time: ~2 min</span>
+                          </div>
+                        </Label>
+                      </div>
+                    ))}
+                  </RadioGroup>
+                  <Button
+                    className="w-full"
+                    disabled={isLifiPending}
+                    onClick={handleExecuteBridge}
+                  >
+                    {isLifiPending ? "Confirm in wallet…" : "Bridge USDC"}
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        )}
 
         {/* Strategy Section */}
         <div className="space-y-3 pt-4 border-t border-border">
@@ -349,44 +555,63 @@ export default function VaultPage() {
           </div>
         </div>
 
-        {/* Action Button */}
-        <div className="pt-4">
-          <Button
-            onClick={handleDeposit}
-            disabled={
-              !address ||
-              !amount ||
-              parseFloat(amount) <= 0 ||
-              isWritePending ||
-              isLifiPending ||
-              isWrongChain
-            }
-            className="w-full"
-            size="lg"
-          >
-            {isWritePending || isLifiPending
-              ? "Confirm in wallet…"
-              : address
-              ? isSameChainDeposit
-                ? "Deposit USDC"
-                : "Bridge & deposit (one-click)"
-              : "Connect wallet to deposit"}
-          </Button>
-          <p className="mt-3 text-center text-xs text-muted-foreground">
-            {address
-              ? "You will receive ERC-4626 vault shares on Ethereum."
-              : "Connect your wallet to deposit."}
-          </p>
-        </div>
+        {/* Action Button (UniYield deposit only) */}
+        {destinationMode === "uniyield" && (
+          <div className="pt-4">
+            <Button
+              onClick={handleDeposit}
+              disabled={
+                !address ||
+                !amount ||
+                parseFloat(amount) <= 0 ||
+                isWritePending ||
+                isLifiPending ||
+                isWrongChain
+              }
+              className="w-full"
+              size="lg"
+            >
+              {isWritePending || isLifiPending
+                ? "Confirm in wallet…"
+                : address
+                ? isSameChainDeposit
+                  ? "Deposit USDC"
+                  : "Bridge & deposit (one-click)"
+                : "Connect wallet to deposit"}
+            </Button>
+            <p className="mt-3 text-center text-xs text-muted-foreground">
+              {address
+                ? "You will receive ERC-4626 vault shares on Ethereum."
+                : "Connect your wallet to deposit."}
+            </p>
+          </div>
+        )}
       </div>
 
-      {/* Transaction Progress Modal */}
+      {/* Transaction Progress Modal (UniYield deposit) */}
       <TransactionProgress
         open={showProgress}
         onOpenChange={setShowProgress}
         steps={steps}
         isComplete={isComplete}
         sharesReceived={sharesReceived}
+      />
+
+      {/* Bridge (Debug) Progress Modal */}
+      <TransactionProgress
+        open={showBridgeProgress}
+        onOpenChange={(open) => {
+          setShowBridgeProgress(open);
+          if (!open) setBridgeStatusPolling(false);
+        }}
+        steps={bridgeSteps}
+        isComplete={bridgeComplete}
+        sharesReceived={
+          bridgeComplete
+            ? `${bridgeReceivedAmount ? formatVaultUnits(BigInt(bridgeReceivedAmount)) : "—"} USDC`
+            : ""
+        }
+        txHash={bridgeTxHash ?? undefined}
       />
     </div>
   );

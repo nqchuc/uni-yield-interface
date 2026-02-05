@@ -16,7 +16,11 @@ interface TransactionProgressProps {
   steps: TransactionStep[];
   isComplete: boolean;
   sharesReceived?: string;
+  /** Optional tx hash for "View transaction" link (Ethereum mainnet). */
+  txHash?: string;
 }
+
+const ETHEREUM_EXPLORER = "https://etherscan.io/tx/";
 
 export function TransactionProgress({
   open,
@@ -24,6 +28,7 @@ export function TransactionProgress({
   steps,
   isComplete,
   sharesReceived,
+  txHash,
 }: TransactionProgressProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -66,13 +71,26 @@ export function TransactionProgress({
 
           {isComplete && (
             <div className="mt-6 pt-6 border-t border-border space-y-3">
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Vault shares received</span>
-                <span className="font-medium tabular-nums">{sharesReceived}</span>
-              </div>
-              <button className="text-sm text-primary hover:underline">
-                View transaction details →
-              </button>
+              {sharesReceived && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Received</span>
+                  <span className="font-medium tabular-nums">{sharesReceived}</span>
+                </div>
+              )}
+              {txHash ? (
+                <a
+                  href={`${ETHEREUM_EXPLORER}${txHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-primary hover:underline"
+                >
+                  View transaction →
+                </a>
+              ) : (
+                sharesReceived && (
+                  <span className="text-sm text-muted-foreground">View transaction details</span>
+                )
+              )}
             </div>
           )}
         </div>
