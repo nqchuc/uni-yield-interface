@@ -1,0 +1,20 @@
+[
+  {"type":"function","name":"asset","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"address"}]},
+  {"type":"function","name":"decimals","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"uint8"}]},
+  {"type":"function","name":"name","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"string"}]},
+  {"type":"function","name":"symbol","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"string"}]},
+  {"type":"function","name":"totalAssets","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"uint256"}]},
+  {"type":"function","name":"totalSupply","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"uint256"}]},
+  {"type":"function","name":"balanceOf","stateMutability":"view","inputs":[{"name":"user","type":"address"}],"outputs":[{"name":"","type":"uint256"}]},
+  {"type":"function","name":"convertToShares","stateMutability":"view","inputs":[{"name":"assets","type":"uint256"}],"outputs":[{"name":"","type":"uint256"}]},
+  {"type":"function","name":"convertToAssets","stateMutability":"view","inputs":[{"name":"shares","type":"uint256"}],"outputs":[{"name":"","type":"uint256"}]},
+  {"type":"function","name":"activeStrategyId","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"bytes32"}]},
+  {"type":"function","name":"getStrategyIds","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"bytes32[]"}]},
+  {"type":"function","name":"getStrategyInfo","stateMutability":"view","inputs":[{"name":"id","type":"bytes32"}],"outputs":[{"name":"enabled","type":"bool"},{"name":"targetBps","type":"uint256"},{"name":"maxBps","type":"uint256"},{"name":"currentAssets","type":"uint256"},{"name":"rateBps","type":"uint256"}]},
+  {"type":"function","name":"previewRebalance","stateMutability":"view","inputs":[],"outputs":[{"name":"fromStrategy","type":"bytes32"},{"name":"toStrategy","type":"bytes32"},{"name":"assetsToMove","type":"uint256"}]},
+  {"type":"function","name":"owner","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"address"}]},
+  {"type":"function","name":"deposit","stateMutability":"nonpayable","inputs":[{"name":"assets","type":"uint256"},{"name":"receiver","type":"address"}],"outputs":[{"name":"shares","type":"uint256"}]},
+  {"type":"function","name":"withdraw","stateMutability":"nonpayable","inputs":[{"name":"assets","type":"uint256"},{"name":"receiver","type":"address"},{"name":"owner","type":"address"}],"outputs":[{"name":"shares","type":"uint256"}]},
+  {"type":"function","name":"redeem","stateMutability":"nonpayable","inputs":[{"name":"shares","type":"uint256"},{"name":"receiver","type":"address"},{"name":"owner","type":"address"}],"outputs":[{"name":"assets","type":"uint256"}]},
+  {"type":"function","name":"rebalance","stateMutability":"nonpayable","inputs":[],"outputs":[]}
+]

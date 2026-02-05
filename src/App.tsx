@@ -6,23 +6,33 @@ import { Layout } from "./components/Layout";
 import VaultPage from "./pages/VaultPage";
 import PortfolioPage from "./pages/PortfolioPage";
 import HowItWorksPage from "./pages/HowItWorksPage";
+import UniYieldPage from "./pages/UniYieldPage";
 import NotFound from "./pages/NotFound";
+import { UniYieldProvider } from "./lib/uniyield";
 
 const App = () => (
   <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <Routes>
-          <Route element={<Layout />}>
-            <Route path="/" element={<VaultPage />} />
-            <Route path="/portfolio" element={<PortfolioPage />} />
-            <Route path="/how-it-works" element={<HowItWorksPage />} />
-          </Route>
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </BrowserRouter>
-    </TooltipProvider>
+    <Toaster />
+    <Sonner />
+    <BrowserRouter>
+      <Routes>
+        <Route element={<Layout />}>
+          <Route path="/" element={<VaultPage />} />
+          <Route path="/portfolio" element={<PortfolioPage />} />
+          <Route path="/how-it-works" element={<HowItWorksPage />} />
+          <Route
+            path="/uniyield"
+            element={
+              <UniYieldProvider>
+                <UniYieldPage />
+              </UniYieldProvider>
+            }
+          />
+        </Route>
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    </BrowserRouter>
+  </TooltipProvider>
 );
 
 export default App;

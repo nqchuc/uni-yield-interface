@@ -11,6 +11,7 @@ import {
 
 const navItems = [
   { label: "Vault", path: "/" },
+  { label: "UniYield", path: "/uniyield" },
   { label: "Portfolio", path: "/portfolio" },
   { label: "How it works", path: "/how-it-works" },
 ];
