@@ -5,6 +5,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 import { CHAIN_ID_BY_KEY } from "@/lib/lifi";
 
 /** Path to chain logo SVG in public assets (id matches filename prefix, e.g. ethereum -> ethereum-logo.svg). */
@@ -13,10 +14,10 @@ function chainLogoPath(id: string): string {
 }
 
 const chains = [
-  { id: "ethereum", name: "Ethereum", chainId: CHAIN_ID_BY_KEY.ethereum },
   { id: "base", name: "Base", chainId: CHAIN_ID_BY_KEY.base },
   { id: "arbitrum", name: "Arbitrum", chainId: CHAIN_ID_BY_KEY.arbitrum },
   { id: "polygon", name: "Polygon", chainId: CHAIN_ID_BY_KEY.polygon },
+  { id: "ethereum", name: "Ethereum", chainId: CHAIN_ID_BY_KEY.ethereum },
   { id: "bnb", name: "BNB Chain", chainId: CHAIN_ID_BY_KEY.bnb },
   { id: "optimism", name: "Optimism", chainId: CHAIN_ID_BY_KEY.optimism },
 ];
@@ -53,10 +54,13 @@ function ChainFallback({ name }: { name: string }) {
 interface ChainSelectorProps {
   value: string;
   onValueChange: (value: string) => void;
+  /** Chain IDs that are disabled and show "Coming soon" */
+  comingSoonChains?: string[];
 }
 
-export function ChainSelector({ value, onValueChange }: ChainSelectorProps) {
+export function ChainSelector({ value, onValueChange, comingSoonChains = [] }: ChainSelectorProps) {
   const selectedChain = chains.find((c) => c.id === value);
+  const isComingSoon = (chainId: string) => comingSoonChains.includes(chainId);
 
   return (
     <Select value={value} onValueChange={onValueChange}>
@@ -74,17 +78,25 @@ export function ChainSelector({ value, onValueChange }: ChainSelectorProps) {
         </SelectValue>
       </SelectTrigger>
       <SelectContent className="bg-popover">
-        {chains.map((chain) => (
-          <SelectItem key={chain.id} value={chain.id}>
-            <span className="flex items-center gap-2">
-              <span className="relative inline-flex h-6 w-6 shrink-0 items-center justify-center">
-                <ChainIcon id={chain.id} className="h-6 w-6 rounded-full" />
-                <ChainFallback name={chain.name} />
+        {chains.map((chain) => {
+          const comingSoon = isComingSoon(chain.id);
+          return (
+            <SelectItem key={chain.id} value={chain.id} disabled={comingSoon}>
+              <span className="flex items-center gap-2">
+                <span className="relative inline-flex h-6 w-6 shrink-0 items-center justify-center">
+                  <ChainIcon id={chain.id} className="h-6 w-6 rounded-full" />
+                  <ChainFallback name={chain.name} />
+                </span>
+                <span>{chain.name}</span>
+                {comingSoon && (
+                  <Badge variant="secondary" className="text-xs ml-1">
+                    Coming soon
+                  </Badge>
+                )}
               </span>
-              <span>{chain.name}</span>
-            </span>
-          </SelectItem>
-        ))}
+            </SelectItem>
+          );
+        })}
       </SelectContent>
     </Select>
   );

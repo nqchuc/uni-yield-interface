@@ -74,7 +74,7 @@ export default function VaultPage() {
   const queryClient = useQueryClient();
   const { address } = useAccount();
   const { strategies, summary, isLoading: vaultLoading } = useVaultData();
-  const [chain, setChain] = useState("ethereum");
+  const [chain, setChain] = useState("base");
   const receiver = address ?? DEMO_USER_ADDRESS;
   const [amount, setAmount] = useState("");
   const [showProgress, setShowProgress] = useState(false);
@@ -414,7 +414,11 @@ export default function VaultPage() {
         {/* Source Section */}
         <div className="space-y-3">
           <label className="infra-label">Deposit from</label>
-          <ChainSelector value={chain} onValueChange={handleChainChange} />
+          <ChainSelector
+            value={chain}
+            onValueChange={handleChainChange}
+            comingSoonChains={["ethereum", "bnb", "optimism"]}
+          />
           <div className="flex gap-3">
             <div className="flex-1">
               <Input
