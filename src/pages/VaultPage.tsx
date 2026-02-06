@@ -10,6 +10,7 @@ import {
 } from "@lifi/sdk";
 import type { Route } from "@lifi/types";
 import { ChainSelector } from "@/components/ChainSelector";
+import { DestinationChainSelector } from "@/components/DestinationChainSelector";
 import { RouteList } from "@/components/RouteList";
 import { StrategyTable } from "@/components/StrategyTable";
 import { TransactionProgress } from "@/components/TransactionProgress";
@@ -86,6 +87,7 @@ export default function VaultPage() {
   const { writeContractAsync, isPending: isWritePending } = useWriteContract();
   const [isLifiPending, setIsLifiPending] = useState(false);
 
+  const [destinationChain, setDestinationChain] = useState("ethereum");
   const [destinationMode, setDestinationMode] = useState<"uniyield" | "bridgeToSelf">(
     vaultNotDeployed ? "bridgeToSelf" : "uniyield"
   );
@@ -427,6 +429,15 @@ export default function VaultPage() {
               <span className="text-sm font-medium text-foreground">USDC</span>
             </div>
           </div>
+        </div>
+
+        {/* Destination Section */}
+        <div className="space-y-3 pt-4 border-t border-border">
+          <label className="infra-label">Deposit to</label>
+          <DestinationChainSelector
+            value={destinationChain}
+            onValueChange={setDestinationChain}
+          />
         </div>
 
         {/* Destination Mode */}
