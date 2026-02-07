@@ -284,36 +284,7 @@ export default function VaultPage() {
     setIsComplete(false);
     setSharesReceived("0 uyUSDC");
 
-    if (isMock) {
-      const stepTimings = [500, 1500, 2500, 3500, 4500];
-      stepTimings.forEach((timing, index) => {
-        setTimeout(() => {
-          setSteps((prev) =>
-            prev.map((step, i) => {
-              if (i < index) return { ...step, status: "complete" as const };
-              if (i === index) return { ...step, status: "loading" as const };
-              return step;
-            })
-          );
-        }, timing);
-      });
-      setTimeout(async () => {
-        setSteps((prev) =>
-          prev.map((step) => ({ ...step, status: "complete" as const }))
-        );
-        try {
-          await deposit({ assets, receiver });
-          setSharesReceived(`${estimatedSharesFormatted} uyUSDC`);
-          queryClient.invalidateQueries({ queryKey: vaultQueryKeys.all });
-        } catch {
-          setSharesReceived(`${estimatedSharesFormatted} uyUSDC`);
-        }
-        setIsComplete(true);
-      }, 5500);
-      return;
-    }
-
-    // Cross-chain: execute selected LiFi route (from other chain → Base vault)
+    // Cross-chain: always use real LiFi executeRoute (never mock)
     if (!isSameChainDeposit) {
       const route = depositRoutes[selectedDepositRouteIndex];
       if (!route) {
@@ -396,10 +367,38 @@ export default function VaultPage() {
       return;
     }
 
-    // Same-chain: direct vault deposit on Base
+    // Same-chain: mock (demo) or real vault deposit on Base
     if (!address) {
       toast.error("Connect wallet to deposit");
       setShowProgress(false);
+      return;
+    }
+    if (isMock) {
+      const stepTimings = [500, 1500, 2500, 3500, 4500];
+      stepTimings.forEach((timing, index) => {
+        setTimeout(() => {
+          setSteps((prev) =>
+            prev.map((step, i) => {
+              if (i < index) return { ...step, status: "complete" as const };
+              if (i === index) return { ...step, status: "loading" as const };
+              return step;
+            })
+          );
+        }, timing);
+      });
+      setTimeout(async () => {
+        setSteps((prev) =>
+          prev.map((step) => ({ ...step, status: "complete" as const }))
+        );
+        try {
+          await deposit({ assets, receiver });
+          setSharesReceived(`${estimatedSharesFormatted} uyUSDC`);
+          queryClient.invalidateQueries({ queryKey: vaultQueryKeys.all });
+        } catch {
+          setSharesReceived(`${estimatedSharesFormatted} uyUSDC`);
+        }
+        setIsComplete(true);
+      }, 5500);
       return;
     }
     setSteps((prev) =>
