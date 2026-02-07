@@ -2,12 +2,7 @@ import { useState, useCallback, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAccount, useSwitchChain, useWriteContract } from "wagmi";
 import { toast } from "sonner";
-import {
-  convertQuoteToRoute,
-  executeRoute,
-  getQuote,
-  type RouteExtended,
-} from "@lifi/sdk";
+import { executeRoute, type RouteExtended } from "@lifi/sdk";
 import type { Route } from "@lifi/types";
 import { ChainSelector } from "@/components/ChainSelector";
 import { DestinationChainSelector } from "@/components/DestinationChainSelector";
@@ -25,13 +20,11 @@ import {
   useEstimatedShares,
   vaultQueryKeys,
 } from "@/hooks/useVaultData";
-import {
-  CHAIN_ID_BY_KEY,
-  USDC_BY_CHAIN_ID,
-} from "@/lib/lifi";
+import { CHAIN_ID_BY_KEY } from "@/lib/lifi";
 import { getChainDisplayName } from "@/lib/chains";
-import { getQuoteBridgeToSelf, getLifiStatus } from "@/lib/lifiClient";
-import { VAULT_CHAIN_ID } from "@/lib/wagmi";
+import { getTotalFeesUSD } from "@/lib/routeUtils";
+import { getQuoteBridgeToSelf, getQuoteDepositToUniYield } from "@/lib/lifiClient";
+import { VAULT_CHAIN_ID, vaultChains } from "@/lib/wagmi";
 import {
   deposit,
   formatVaultUnits,
@@ -53,7 +46,7 @@ interface TransactionStep {
 
 const initialSteps: TransactionStep[] = [
   { id: "wallet", label: "Wallet confirmation", status: "pending" },
-  { id: "routing", label: "Cross-chain routing", status: "pending" },
+  { id: "routing", label: "Executing route (bridge + deposit)", status: "pending" },
   { id: "settlement", label: "Base settlement", status: "pending" },
   { id: "deposit", label: "Vault deposit", status: "pending" },
   { id: "mint", label: "Shares minted", status: "pending" },
@@ -94,6 +87,9 @@ export default function VaultPage() {
   const [routes, setRoutes] = useState<Route[]>([]);
   const [routesLoading, setRoutesLoading] = useState(false);
   const [selectedRouteIndex, setSelectedRouteIndex] = useState(0);
+  const [depositRoutes, setDepositRoutes] = useState<Route[]>([]);
+  const [depositRoutesLoading, setDepositRoutesLoading] = useState(false);
+  const [selectedDepositRouteIndex, setSelectedDepositRouteIndex] = useState(0);
   const [bridgeSteps, setBridgeSteps] = useState(bridgeDebugSteps);
   const [showBridgeProgress, setShowBridgeProgress] = useState(false);
   const [bridgeComplete, setBridgeComplete] = useState(false);
@@ -110,6 +106,11 @@ export default function VaultPage() {
     }
   }, [strategies, selectedStrategyProtocol]);
 
+  // Clear deposit routes when amount or source chain changes
+  useEffect(() => {
+    setDepositRoutes([]);
+  }, [amount, chain]);
+
   const isSameChainDeposit = chain === "base";
   const isWrongChain =
     !isMock &&
@@ -119,17 +120,37 @@ export default function VaultPage() {
     chainId !== VAULT_CHAIN_ID;
 
   const estimatedSharesQ = useEstimatedShares(amount);
+  const selectedDepositRouteForShares = depositRoutes[selectedDepositRouteIndex];
   const estimatedSharesFormatted =
-    estimatedSharesQ.data != null
-      ? formatVaultUnits(estimatedSharesQ.data)
-      : "0.000000";
+    selectedDepositRouteForShares?.toAmount != null
+      ? formatVaultUnits(BigInt(selectedDepositRouteForShares.toAmount))
+      : estimatedSharesQ.data != null
+        ? formatVaultUnits(estimatedSharesQ.data)
+        : "0.000000";
   const selectedStrategy = strategies.find((s) => s.protocol === selectedStrategyProtocol);
   const currentAPY =
     selectedStrategy?.apy ?? summary?.currentAPY ?? "—";
-  const estimatedFees = amount
-    ? `$${(parseFloat(amount) * 0.0013).toFixed(2)}`
-    : "$0.00";
-  const executionTime = chain === "base" ? "~30 seconds" : "~2 minutes";
+  const selectedDepositRoute = depositRoutes[selectedDepositRouteIndex];
+  const depositRouteFees = selectedDepositRoute
+    ? getTotalFeesUSD(selectedDepositRoute)
+    : null;
+  const estimatedFees =
+    depositRouteFees ??
+    (amount ? `$${(parseFloat(amount) * 0.0013).toFixed(2)}` : "$0.00");
+  const depositRouteEstTime =
+    selectedDepositRoute?.steps?.[0] != null
+      ? (() => {
+          const est = (selectedDepositRoute.steps[0] as { estimate?: { executionDuration?: number } }).estimate;
+          const sec = est?.executionDuration;
+          return sec != null
+            ? sec < 60
+              ? `~${sec}s`
+              : `~${Math.ceil(sec / 60)} min`
+            : "~2 min";
+        })()
+      : null;
+  const executionTime =
+    depositRouteEstTime ?? (chain === "base" ? "~30 seconds" : "~2 minutes");
 
   const handleChainChange = (newChain: string) => {
     const targetChainId = CHAIN_ID_BY_KEY[newChain];
@@ -171,6 +192,29 @@ export default function VaultPage() {
       setRoutesLoading(false);
     }
   }, [address, amount, chain, destinationChain]);
+
+  const fetchRoutesForDeposit = useCallback(async () => {
+    if (!address || !amount || parseFloat(amount) <= 0 || isSameChainDeposit) return;
+    const fromChainId = CHAIN_ID_BY_KEY[chain];
+    const fromAmount = BigInt(Math.round(parseFloat(amount) * 1e6)).toString();
+    setDepositRoutesLoading(true);
+    setDepositRoutes([]);
+    try {
+      const { route } = await getQuoteDepositToUniYield({
+        fromChainId,
+        fromAmount,
+        userAddress: address,
+        receiver,
+      });
+      setDepositRoutes([route]);
+      setSelectedDepositRouteIndex(0);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to fetch routes";
+      toast.error(msg);
+    } finally {
+      setDepositRoutesLoading(false);
+    }
+  }, [address, amount, chain, receiver, isSameChainDeposit]);
 
   const handleExecuteBridge = useCallback(async () => {
     const route = routes[selectedRouteIndex];
@@ -264,12 +308,16 @@ export default function VaultPage() {
       return;
     }
 
-    // Cross-chain: LiFi quote + execute (from other chain → Base vault)
+    // Cross-chain: execute selected LiFi route (from other chain → Base vault)
     if (!isSameChainDeposit) {
-      const fromChainId = CHAIN_ID_BY_KEY[chain];
-      const fromToken = USDC_BY_CHAIN_ID[fromChainId];
-      if (!fromToken || !receiver) {
-        toast.error("Invalid chain or wallet");
+      const route = depositRoutes[selectedDepositRouteIndex];
+      if (!route) {
+        toast.error("Get routes first");
+        setShowProgress(false);
+        return;
+      }
+      if (!receiver) {
+        toast.error("Invalid wallet");
         setShowProgress(false);
         return;
       }
@@ -277,52 +325,40 @@ export default function VaultPage() {
       setSteps((prev) =>
         prev.map((s, i) => (i === 0 ? { ...s, status: "loading" as const } : s))
       );
-      getQuote({
-        fromChain: fromChainId,
-        toChain: VAULT_CHAIN_ID,
-        fromToken,
-        toToken: UNIYIELD_VAULT_ADDRESS,
-        fromAmount: assets.toString(),
-        fromAddress: receiver,
-        toAddress: receiver,
-      })
-        .then((quote) => {
-          const route = convertQuoteToRoute(quote);
-          return executeRoute(route, {
-            updateRouteHook(updatedRoute: RouteExtended) {
-              const stepsWithExecution = updatedRoute.steps.filter(
-                (s) => s.execution != null
-              );
-              const allDone = stepsWithExecution.every(
-                (s) => s.execution?.status === "DONE"
-              );
-              const anyLoading = stepsWithExecution.some(
-                (s) =>
-                  s.execution?.status === "PENDING" ||
-                  s.execution?.status === "ACTION_REQUIRED"
-              );
-              setSteps((prev) => {
-                if (allDone) {
-                  return prev.map((s) => ({
-                    ...s,
-                    status: "complete" as const,
-                  }));
-                }
-                const doneCount = stepsWithExecution.filter(
-                  (s) => s.execution?.status === "DONE"
-                ).length;
-                return prev.map((step, i) => {
-                  if (i === 0) return { ...step, status: "complete" as const };
-                  if (i <= doneCount)
-                    return { ...step, status: "complete" as const };
-                  if (i === doneCount + 1 && anyLoading)
-                    return { ...step, status: "loading" as const };
-                  return step;
-                });
-              });
-            },
+      executeRoute(route, {
+        updateRouteHook(updatedRoute: RouteExtended) {
+          const stepsWithExecution = updatedRoute.steps.filter(
+            (s) => s.execution != null
+          );
+          const allDone = stepsWithExecution.every(
+            (s) => s.execution?.status === "DONE"
+          );
+          const anyLoading = stepsWithExecution.some(
+            (s) =>
+              s.execution?.status === "PENDING" ||
+              s.execution?.status === "ACTION_REQUIRED"
+          );
+          setSteps((prev) => {
+            if (allDone) {
+              return prev.map((s) => ({
+                ...s,
+                status: "complete" as const,
+              }));
+            }
+            const doneCount = stepsWithExecution.filter(
+              (s) => s.execution?.status === "DONE"
+            ).length;
+            return prev.map((step, i) => {
+              if (i === 0) return { ...step, status: "complete" as const };
+              if (i <= doneCount)
+                return { ...step, status: "complete" as const };
+              if (i === doneCount + 1 && anyLoading)
+                return { ...step, status: "loading" as const };
+              return step;
+            });
           });
-        })
+        },
+      })
         .then((executedRoute) => {
           const toAmount =
             executedRoute.steps[executedRoute.steps.length - 1]?.estimate
@@ -341,7 +377,12 @@ export default function VaultPage() {
         .catch((err: unknown) => {
           const message =
             err instanceof Error ? err.message : "Cross-chain deposit failed.";
-          toast.error(message);
+          toast.error(message, {
+            action: {
+              label: "Retry as Bridge-to-self",
+              onClick: () => setDestinationMode("bridgeToSelf"),
+            },
+          });
           setShowProgress(false);
         })
         .finally(() => {
@@ -351,15 +392,22 @@ export default function VaultPage() {
     }
 
     // Same-chain: direct vault deposit on Base
+    if (!address) {
+      toast.error("Connect wallet to deposit");
+      setShowProgress(false);
+      return;
+    }
     setSteps((prev) =>
       prev.map((s, i) => (i === 0 ? { ...s, status: "loading" as const } : s))
     );
+    const baseChain = vaultChains.find((c) => c.id === VAULT_CHAIN_ID);
     writeContractAsync({
       address: UNIYIELD_VAULT_ADDRESS as `0x${string}`,
       abi: VAULT_ABI as never,
       functionName: "deposit",
       args: [assets, receiver as `0x${string}`],
-      chainId: VAULT_CHAIN_ID,
+      chain: baseChain ?? vaultChains[1],
+      account: address,
     })
       .then(() => {
         setSteps((prev) =>
@@ -451,7 +499,11 @@ export default function VaultPage() {
           <Label className="infra-label">Destination Mode</Label>
           <RadioGroup
             value={destinationMode}
-            onValueChange={(v) => setDestinationMode(v as "uniyield" | "bridgeToSelf")}
+            onValueChange={(v) => {
+              setDestinationMode(v as "uniyield" | "bridgeToSelf");
+              setRoutes([]);
+              setDepositRoutes([]);
+            }}
             className="grid gap-3"
           >
             <div className="flex items-center space-x-2">
@@ -460,7 +512,7 @@ export default function VaultPage() {
                 htmlFor="dest-uniyield"
                 className="flex flex-col gap-0.5 font-normal cursor-pointer"
               >
-                <span>Deposit into UniYield (coming soon)</span>
+                <span>Deposit into UniYield</span>
                 {vaultNotDeployed && (
                   <span className="text-xs text-muted-foreground">Vault not deployed — click to preview</span>
                 )}
@@ -476,7 +528,7 @@ export default function VaultPage() {
           </RadioGroup>
           {destinationMode === "uniyield" && (
             <p className="text-xs text-muted-foreground">
-              UniYield USDC Vault (Base). Funds are routed cross-chain and deposited automatically.
+              Destination: Base. You will receive UniYield vault shares (uyUSDC). Funds are routed cross-chain and deposited in one transaction.
             </p>
           )}
           {destinationMode === "bridgeToSelf" && (
@@ -541,6 +593,39 @@ export default function VaultPage() {
           </div>
         )}
 
+        {/* Deposit mode: routes (cross-chain only) */}
+        {destinationMode === "uniyield" && !isSameChainDeposit && (
+          <div className="space-y-4 pt-4 border-t border-border">
+            <div className="flex items-center justify-between">
+              <Label>Routes</Label>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!address || !amount || parseFloat(amount) <= 0 || depositRoutesLoading}
+                onClick={fetchRoutesForDeposit}
+              >
+                {depositRoutesLoading ? "Loading…" : "Get routes"}
+              </Button>
+            </div>
+            {depositRoutes.length > 0 && (
+              <Card>
+                <CardHeader className="py-3">
+                  <CardTitle className="text-sm">Route (bridge + vault deposit)</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3 pt-0">
+                  <RouteList
+                    routes={depositRoutes}
+                    selectedIndex={selectedDepositRouteIndex}
+                    onSelectIndex={setSelectedDepositRouteIndex}
+                    formatVaultUnits={formatVaultUnits}
+                  />
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        )}
+
         {/* Summary (deposit mode only) */}
         {destinationMode === "uniyield" && (
           <div className="space-y-3 pt-4 border-t border-border">
@@ -580,7 +665,8 @@ export default function VaultPage() {
                 parseFloat(amount) <= 0 ||
                 isWritePending ||
                 isLifiPending ||
-                isWrongChain
+                isWrongChain ||
+                (!isSameChainDeposit && depositRoutes.length === 0)
               }
               className="w-full"
               size="lg"
@@ -590,7 +676,9 @@ export default function VaultPage() {
                 : address
                 ? isSameChainDeposit
                   ? "Deposit USDC"
-                  : "Bridge & deposit (one-click)"
+                  : depositRoutes.length === 0
+                    ? "Get routes first"
+                    : "Bridge & deposit"
                 : "Connect wallet to deposit"}
             </Button>
             <p className="mt-3 text-center text-xs text-muted-foreground">
