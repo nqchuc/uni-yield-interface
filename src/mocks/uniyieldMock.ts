@@ -115,11 +115,10 @@ export async function mockWrite(functionName: string, args: any[] = []) {
     state.activeStrategyId = STRATEGY_IDS.AAVE as any;
   }
 
-  if (functionName === "deposit" || functionName === "depositReceived") {
+  if (functionName === "deposit") {
     // Very simple “mint shares equal to assets received”
-    const receiver = functionName === "deposit" ? args[1] : args[0];
-    const assets =
-      functionName === "deposit" ? BigInt(args[0] ?? 0) : 100_000000n; // mock cross-chain received amount = 100 USDC
+    const receiver = args[1];
+    const assets = BigInt(args[0] ?? 0);
 
     const shares = assets;
     const key = String(receiver).toLowerCase();
