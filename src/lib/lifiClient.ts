@@ -106,6 +106,8 @@ export async function getQuoteDepositToUniYield(
   });
 
   const route = convertQuoteToRoute(contractCallQuote);
+  // LiFi returns toAmount=0 for custom vault token; attach actual USDC amount for UI
+  (route as Route & { depositAmountOut?: string }).depositAmountOut = toAmount;
 
   return {
     route,

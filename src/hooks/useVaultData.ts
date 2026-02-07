@@ -28,6 +28,8 @@ export const vaultQueryKeys = {
     [...vaultQueryKeys.all, "balance", user, chainId] as const,
   convertToShares: (amountStr: string, chainId?: number) =>
     [...vaultQueryKeys.all, "convertToShares", amountStr, chainId] as const,
+  convertToSharesFromWei: (assetsWei: string, chainId?: number) =>
+    [...vaultQueryKeys.all, "convertToSharesFromWei", assetsWei, chainId] as const,
 };
 
 export function useVaultStrategies() {
@@ -120,6 +122,17 @@ export function useEstimatedShares(amountStr: string) {
     queryKey: vaultQueryKeys.convertToShares(amountStr, chainId),
     queryFn: () => convertToShares(assets, publicClient ?? undefined),
     enabled: amountStr !== "" && assets > 0n,
+  });
+}
+
+/** Convert USDC amount (wei string) to vault shares. Uses Base chain for vault read. */
+export function useConvertToSharesFromWei(assetsWei: string | undefined) {
+  const publicClient = usePublicClient({ chainId: 8453 });
+  const assets = assetsWei ? BigInt(assetsWei) : 0n;
+  return useQuery({
+    queryKey: vaultQueryKeys.convertToSharesFromWei(assetsWei ?? "", 8453),
+    queryFn: () => convertToShares(assets, publicClient ?? undefined),
+    enabled: !!assetsWei && assets > 0n && !!publicClient,
   });
 }
 

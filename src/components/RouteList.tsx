@@ -113,7 +113,11 @@ export function RouteList({
                   </div>
 
                   <div className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
-                    <span>Receive: {formatVaultUnits(BigInt(r.toAmount))} USDC</span>
+                    <span>
+                      {(r as Route & { depositAmountOut?: string }).depositAmountOut
+                        ? `Deposit: ${formatVaultUnits(BigInt((r as Route & { depositAmountOut: string }).depositAmountOut))} USDC`
+                        : `Receive: ${formatVaultUnits(BigInt(r.toAmount))} USDC`}
+                    </span>
                     <span>Est. time: {estTime}</span>
                     <span>Total fees: {totalFees}</span>
                     <span>Steps: {r.steps.length}</span>

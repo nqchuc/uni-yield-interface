@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   useVaultData,
   useEstimatedShares,
+  useConvertToSharesFromWei,
   vaultQueryKeys,
 } from "@/hooks/useVaultData";
 import { CHAIN_ID_BY_KEY } from "@/lib/lifi";
@@ -121,12 +122,16 @@ export default function VaultPage() {
 
   const estimatedSharesQ = useEstimatedShares(amount);
   const selectedDepositRouteForShares = depositRoutes[selectedDepositRouteIndex];
+  const depositAmountOut = (selectedDepositRouteForShares as Route & { depositAmountOut?: string })?.depositAmountOut;
+  const crossChainSharesQ = useConvertToSharesFromWei(depositAmountOut);
   const estimatedSharesFormatted =
-    selectedDepositRouteForShares?.toAmount != null
-      ? formatVaultUnits(BigInt(selectedDepositRouteForShares.toAmount))
-      : estimatedSharesQ.data != null
-        ? formatVaultUnits(estimatedSharesQ.data)
-        : "0.000000";
+    depositAmountOut && crossChainSharesQ.data != null
+      ? formatVaultUnits(crossChainSharesQ.data)
+      : selectedDepositRouteForShares?.toAmount != null && BigInt(selectedDepositRouteForShares.toAmount) > 0n
+        ? formatVaultUnits(BigInt(selectedDepositRouteForShares.toAmount))
+        : estimatedSharesQ.data != null
+          ? formatVaultUnits(estimatedSharesQ.data)
+          : "0.000000";
   const selectedStrategy = strategies.find((s) => s.protocol === selectedStrategyProtocol);
   const currentAPY =
     selectedStrategy?.apy ?? summary?.currentAPY ?? "—";
@@ -634,7 +639,7 @@ export default function VaultPage() {
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Estimated shares</span>
                 <span className="font-medium tabular-nums">
-                  {estimatedSharesQ.isLoading ? "…" : estimatedSharesFormatted}
+                  {(depositAmountOut ? crossChainSharesQ.isLoading : estimatedSharesQ.isLoading) ? "…" : estimatedSharesFormatted}
                 </span>
               </div>
               <div className="flex justify-between">
