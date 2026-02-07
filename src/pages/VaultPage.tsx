@@ -27,7 +27,6 @@ import {
 } from "@/hooks/useVaultData";
 import {
   CHAIN_ID_BY_KEY,
-  LIFI_ETHEREUM_CHAIN_ID,
   USDC_BY_CHAIN_ID,
 } from "@/lib/lifi";
 import { getChainDisplayName } from "@/lib/chains";
@@ -55,7 +54,7 @@ interface TransactionStep {
 const initialSteps: TransactionStep[] = [
   { id: "wallet", label: "Wallet confirmation", status: "pending" },
   { id: "routing", label: "Cross-chain routing", status: "pending" },
-  { id: "settlement", label: "Ethereum settlement", status: "pending" },
+  { id: "settlement", label: "Base settlement", status: "pending" },
   { id: "deposit", label: "Vault deposit", status: "pending" },
   { id: "mint", label: "Shares minted", status: "pending" },
 ];
@@ -88,7 +87,7 @@ export default function VaultPage() {
   const { writeContractAsync, isPending: isWritePending } = useWriteContract();
   const [isLifiPending, setIsLifiPending] = useState(false);
 
-  const [destinationChain, setDestinationChain] = useState("ethereum");
+  const [destinationChain, setDestinationChain] = useState("base");
   const [destinationMode, setDestinationMode] = useState<"uniyield" | "bridgeToSelf">(
     vaultNotDeployed ? "bridgeToSelf" : "uniyield"
   );
@@ -111,7 +110,7 @@ export default function VaultPage() {
     }
   }, [strategies, selectedStrategyProtocol]);
 
-  const isSameChainDeposit = chain === "ethereum";
+  const isSameChainDeposit = chain === "base";
   const isWrongChain =
     !isMock &&
     isSameChainDeposit &&
@@ -130,7 +129,7 @@ export default function VaultPage() {
   const estimatedFees = amount
     ? `$${(parseFloat(amount) * 0.0013).toFixed(2)}`
     : "$0.00";
-  const executionTime = chain === "ethereum" ? "~30 seconds" : "~2 minutes";
+  const executionTime = chain === "base" ? "~30 seconds" : "~2 minutes";
 
   const handleChainChange = (newChain: string) => {
     const targetChainId = CHAIN_ID_BY_KEY[newChain];
@@ -265,7 +264,7 @@ export default function VaultPage() {
       return;
     }
 
-    // Cross-chain: LiFi quote + execute (from other chain → Ethereum vault)
+    // Cross-chain: LiFi quote + execute (from other chain → Base vault)
     if (!isSameChainDeposit) {
       const fromChainId = CHAIN_ID_BY_KEY[chain];
       const fromToken = USDC_BY_CHAIN_ID[fromChainId];
@@ -280,7 +279,7 @@ export default function VaultPage() {
       );
       getQuote({
         fromChain: fromChainId,
-        toChain: LIFI_ETHEREUM_CHAIN_ID,
+        toChain: VAULT_CHAIN_ID,
         fromToken,
         toToken: UNIYIELD_VAULT_ADDRESS,
         fromAmount: assets.toString(),
@@ -351,7 +350,7 @@ export default function VaultPage() {
       return;
     }
 
-    // Same-chain: direct vault deposit on Ethereum
+    // Same-chain: direct vault deposit on Base
     setSteps((prev) =>
       prev.map((s, i) => (i === 0 ? { ...s, status: "loading" as const } : s))
     );
@@ -398,7 +397,7 @@ export default function VaultPage() {
           <AlertTitle>Wrong network</AlertTitle>
           <AlertDescription className="flex flex-wrap items-center gap-2">
             <span>
-              The vault is on Ethereum mainnet. Switch network to deposit.
+              The vault is on Base. Switch network to deposit.
             </span>
             <Button
               size="sm"
@@ -406,7 +405,7 @@ export default function VaultPage() {
               disabled={isSwitchPending}
               onClick={() => switchChain({ chainId: VAULT_CHAIN_ID })}
             >
-              {isSwitchPending ? "Switching…" : "Switch to Ethereum"}
+              {isSwitchPending ? "Switching…" : "Switch to Base"}
             </Button>
           </AlertDescription>
         </Alert>
@@ -477,7 +476,7 @@ export default function VaultPage() {
           </RadioGroup>
           {destinationMode === "uniyield" && (
             <p className="text-xs text-muted-foreground">
-              UniYield USDC Vault (Ethereum). Funds are routed cross-chain and deposited automatically.
+              UniYield USDC Vault (Base). Funds are routed cross-chain and deposited automatically.
             </p>
           )}
           {destinationMode === "bridgeToSelf" && (
@@ -596,7 +595,7 @@ export default function VaultPage() {
             </Button>
             <p className="mt-3 text-center text-xs text-muted-foreground">
               {address
-                ? "You will receive ERC-4626 vault shares on Ethereum."
+                ? "You will receive ERC-4626 vault shares on Base."
                 : "Connect your wallet to deposit."}
             </p>
           </div>

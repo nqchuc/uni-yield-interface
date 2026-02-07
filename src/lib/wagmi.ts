@@ -17,5 +17,5 @@ export const config = createConfig({
   },
 });
 
-/** Chain the vault contract is deployed on. */
-export const VAULT_CHAIN_ID = mainnet.id;
+/** Chain the vault contract is deployed on (Base mainnet). */
+export const VAULT_CHAIN_ID = base.id;

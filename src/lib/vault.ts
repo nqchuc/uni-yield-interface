@@ -1,12 +1,8 @@
 import { readContract } from "viem/actions";
 import type { PublicClient } from "viem";
 import uniyieldVaultAbi from "@/abis/uniyieldVaultUI.abi.json";
-import {
-  mockRead,
-  mockWrite,
-  STRATEGY_NAMES,
-  UNIYIELD_VAULT_ADDRESS,
-} from "@/mocks/uniyieldMock";
+import { mockRead, mockWrite, STRATEGY_NAMES } from "@/mocks/uniyieldMock";
+import { UNIYIELD_VAULT_ADDRESS } from "@/config/uniyield";
 
 export const VAULT_ABI = uniyieldVaultAbi as readonly unknown[];
 export { UNIYIELD_VAULT_ADDRESS };

@@ -8,13 +8,14 @@
 export const DEMO_MODE =
   import.meta.env.VITE_DEMO_MODE === "true";
 
-/** TODO: Replace with deployed Diamond address. Fallback for dev/demo. */
+/** UniYield Diamond on Base mainnet. Override with VITE_UNIYIELD_VAULT_ADDRESS for other deployments. */
 export const UNIYIELD_VAULT_ADDRESS: string =
   import.meta.env.VITE_UNIYIELD_VAULT_ADDRESS ??
-  "0x0000000000000000000000000000000000000000";
+  "0x95A578Aa0aDDe49cb638745c86C27117AD00067c";
 
+/** Chain the vault is deployed on. Base mainnet = 8453. */
 export const DEFAULT_CHAIN_ID: number = Number(
-  import.meta.env.VITE_CHAIN_ID ?? "1"
+  import.meta.env.VITE_CHAIN_ID ?? "8453"
 );
 
 /** Optional. If absent, USDC is read from vault.asset() once connected. */
