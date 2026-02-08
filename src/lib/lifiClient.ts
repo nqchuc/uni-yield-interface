@@ -88,6 +88,7 @@ export async function getQuoteDepositToUniYield(
       toContractAddress: toToken,
       toContractCallData: approveCalldata,
       toContractGasLimit: ERC20_APPROVE_GAS,
+      toApprovalAddress: UNIYIELD_VAULT_BASE,
     },
     {
       fromAmount: toAmount,
@@ -95,6 +96,7 @@ export async function getQuoteDepositToUniYield(
       toContractAddress: UNIYIELD_VAULT_BASE,
       toContractCallData: depositCalldata,
       toContractGasLimit: VAULT_DEPOSIT_GAS,
+      // Omit toTokenAddress: avoid LiFi adding swap logic for vault shares
     },
   ];
 
@@ -107,7 +109,12 @@ export async function getQuoteDepositToUniYield(
     fromAmount: params.fromAmount,
     contractCalls,
     toFallbackAddress: params.userAddress,
-    contractOutputsToken: UNIYIELD_VAULT_BASE,
+    // Option B: Remove destination swap entirely.
+    // fromToken==toToken (USDC) so no swap needed. denyExchanges prevents LiFi from
+    // adding a swap step. Without swap, bridged funds should land in Executor (not EOA),
+    // so approve+deposit can run. Swap was failing: Executor had 0 balance (Stargate
+    // was sending to EOA) and swap() reverted.
+    denyExchanges: ["all"],
     slippage: 0.003,
   });
 
@@ -136,20 +143,21 @@ export function createGetContractCallsForUniYield(): (
     }
     const receiver = params.toAddress ?? params.fromAddress;
 
+    const usePatcher = params.toAmount <= 0n;
+    const amount = usePatcher ? PatcherMagicNumber : params.toAmount;
+    const amountStr = amount.toString();
+
     const approveCalldata = encodeFunctionData({
       abi: erc20Abi as never,
       functionName: "approve",
-      args: [UNIYIELD_VAULT_BASE as `0x${string}`, PatcherMagicNumber],
+      args: [UNIYIELD_VAULT_BASE as `0x${string}`, amount],
     });
 
     const depositCalldata = encodeFunctionData({
       abi: uniyieldVaultAbi as never,
       functionName: "deposit",
-      args: [PatcherMagicNumber, receiver as `0x${string}`],
+      args: [amount, receiver as `0x${string}`],
     });
-
-    const amountStr =
-      params.toAmount > 0n ? params.toAmount.toString() : PatcherMagicNumber.toString();
 
     const contractCalls: ContractCall[] = [
       {
@@ -158,6 +166,7 @@ export function createGetContractCallsForUniYield(): (
         toContractAddress: toToken,
         toContractCallData: approveCalldata,
         toContractGasLimit: ERC20_APPROVE_GAS,
+        toApprovalAddress: UNIYIELD_VAULT_BASE,
       },
       {
         fromAmount: amountStr,
@@ -165,10 +174,11 @@ export function createGetContractCallsForUniYield(): (
         toContractAddress: UNIYIELD_VAULT_BASE,
         toContractCallData: depositCalldata,
         toContractGasLimit: VAULT_DEPOSIT_GAS,
+        // Omit toTokenAddress: avoid LiFi adding swap logic for vault shares
       },
     ];
 
-    return { contractCalls, patcher: true };
+    return { contractCalls, patcher: usePatcher || undefined };
   };
 }
 

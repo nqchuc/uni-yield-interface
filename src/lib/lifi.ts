@@ -12,6 +12,12 @@ const lifiApiKey = import.meta.env.VITE_LIFI_API_KEY;
 createConfig({
   integrator: "UniYield",
   ...(lifiApiKey ? { apiKey: lifiApiKey } : {}),
+  // Option B: Remove destination swap. Our vault flow bridges USDC->USDC and runs
+  // approve+deposit. No swap needed. Without this, LiFi adds a swap step; Executor
+  // has 0 balance (Stargate sends to EOA) and swap reverts.
+  routeOptions: {
+    exchanges: { deny: ["all"] },
+  },
   providers: [
     EVM({
       getWalletClient: () => getWalletClient(wagmiConfig),
