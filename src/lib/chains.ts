@@ -39,5 +39,19 @@ export const USDC_BY_CHAIN_ID: Record<number, string> = {
   10: "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85",
 };
 
+/** Block explorer base URL for tx links by chain ID. */
+export const EXPLORER_TX_BY_CHAIN: Record<number, string> = {
+  1: "https://etherscan.io/tx/",
+  8453: "https://basescan.org/tx/",
+  42161: "https://arbiscan.io/tx/",
+  137: "https://polygonscan.com/tx/",
+  56: "https://bscscan.com/tx/",
+  10: "https://optimistic.etherscan.io/tx/",
+};
+
+export function getExplorerTxLink(chainId: number, txHash: string): string {
+  return (EXPLORER_TX_BY_CHAIN[chainId] ?? "https://etherscan.io/tx/") + txHash;
+}
+
 /** List of chain IDs we support (Base, Arbitrum, Polygon, BNB, Ethereum, Optimism). */
 export const SUPPORTED_CHAIN_IDS = Object.values(CHAIN_ID_BY_KEY);

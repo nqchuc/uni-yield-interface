@@ -22,9 +22,13 @@ import {
   vaultQueryKeys,
 } from "@/hooks/useVaultData";
 import { CHAIN_ID_BY_KEY } from "@/lib/lifi";
-import { getChainDisplayName } from "@/lib/chains";
+import { getChainDisplayName, getExplorerTxLink } from "@/lib/chains";
 import { getTotalFeesUSD } from "@/lib/routeUtils";
-import { getQuoteBridgeToSelf, getQuoteDepositToUniYield } from "@/lib/lifiClient";
+import {
+  getQuoteBridgeToSelf,
+  getQuoteDepositToUniYield,
+  createGetContractCallsForUniYield,
+} from "@/lib/lifiClient";
 import { VAULT_CHAIN_ID, vaultChains } from "@/lib/wagmi";
 import {
   deposit,
@@ -95,6 +99,7 @@ export default function VaultPage() {
   const [showBridgeProgress, setShowBridgeProgress] = useState(false);
   const [bridgeComplete, setBridgeComplete] = useState(false);
   const [bridgeTxHash, setBridgeTxHash] = useState<string | null>(null);
+  const [depositTxLink, setDepositTxLink] = useState<string | null>(null);
   const [bridgeReceivedAmount, setBridgeReceivedAmount] = useState<string>("");
   const [bridgeStatusPolling, setBridgeStatusPolling] = useState(false);
   const [selectedStrategyProtocol, setSelectedStrategyProtocol] = useState<string | null>(null);
@@ -283,6 +288,7 @@ export default function VaultPage() {
     setSteps(initialSteps);
     setIsComplete(false);
     setSharesReceived("0 uyUSDC");
+    setDepositTxLink(null);
 
     // Cross-chain: always use real LiFi executeRoute (never mock)
     if (!isSameChainDeposit) {
@@ -302,6 +308,7 @@ export default function VaultPage() {
         prev.map((s, i) => (i === 0 ? { ...s, status: "loading" as const } : s))
       );
       executeRoute(route, {
+        getContractCalls: createGetContractCallsForUniYield(),
         updateRouteHook(updatedRoute: RouteExtended) {
           const stepsWithExecution = updatedRoute.steps.filter(
             (s) => s.execution != null
@@ -336,13 +343,62 @@ export default function VaultPage() {
         },
       })
         .then((executedRoute) => {
-          const toAmount =
-            executedRoute.steps[executedRoute.steps.length - 1]?.estimate
-              ?.toAmount;
-          const sharesStr =
-            toAmount != null
-              ? formatVaultUnits(BigInt(toAmount))
-              : estimatedSharesFormatted;
+          const lastStep = executedRoute.steps[executedRoute.steps.length - 1];
+          const toAmount = lastStep?.estimate?.toAmount;
+          const hasValidToAmount =
+            toAmount != null && toAmount !== "" && BigInt(toAmount) > 0n;
+          const sharesStr = hasValidToAmount
+            ? formatVaultUnits(BigInt(toAmount))
+            : `~${estimatedSharesFormatted}`;
+
+          let txLink: string | null = null;
+          for (const step of executedRoute.steps) {
+            const processes =
+              (step as {
+                execution?: {
+                  process?: Array<{
+                    type?: string;
+                    txHash?: string;
+                    txLink?: string;
+                    chainId?: number;
+                  }>;
+                };
+              }).execution?.process ?? [];
+            const receiving = processes.find(
+              (p) => p.type === "RECEIVING_CHAIN" && (p.txHash || p.txLink)
+            );
+            if (receiving?.txLink) {
+              txLink = receiving.txLink;
+              break;
+            }
+            if (receiving?.txHash) {
+              txLink = getExplorerTxLink(8453, receiving.txHash);
+              break;
+            }
+            const baseProc = processes.find(
+              (p) =>
+                (p.txHash || p.txLink) &&
+                (p.chainId === 8453 || p.type === "RECEIVING_CHAIN")
+            );
+            if (baseProc?.txLink) {
+              txLink = baseProc.txLink;
+              break;
+            }
+            if (baseProc?.txHash) {
+              txLink = getExplorerTxLink(baseProc.chainId ?? 8453, baseProc.txHash);
+              break;
+            }
+            const anyProc = processes.find((p) => p.txHash || p.txLink);
+            if (anyProc?.txLink) {
+              txLink = anyProc.txLink;
+              break;
+            }
+            if (anyProc?.txHash) {
+              txLink = getExplorerTxLink(anyProc.chainId ?? 8453, anyProc.txHash);
+              break;
+            }
+          }
+          setDepositTxLink(txLink);
           setSharesReceived(`${sharesStr} uyUSDC`);
           setSteps((prev) =>
             prev.map((step) => ({ ...step, status: "complete" as const }))
@@ -704,6 +760,7 @@ export default function VaultPage() {
         steps={steps}
         isComplete={isComplete}
         sharesReceived={sharesReceived}
+        txLink={depositTxLink ?? undefined}
       />
 
       {/* Bridge (Debug) Progress Modal */}

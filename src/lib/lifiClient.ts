@@ -7,8 +7,14 @@ import {
   getRoutes,
   getStatus,
   convertQuoteToRoute,
+  PatcherMagicNumber,
 } from "@lifi/sdk";
-import type { ContractCall, RoutesRequest, RoutesResponse, StatusResponse } from "@lifi/types";
+import type {
+  ContractCall,
+  RoutesRequest,
+  RoutesResponse,
+  StatusResponse,
+} from "@lifi/types";
 import type { Route } from "@lifi/types";
 import { encodeFunctionData } from "viem";
 import { USDC_BY_CHAIN_ID } from "@/lib/chains";
@@ -112,6 +118,57 @@ export async function getQuoteDepositToUniYield(
   return {
     route,
     depositAmountOut: toAmount,
+  };
+}
+
+/**
+ * Creates getContractCalls hook for executeRoute.
+ * Required for contract call steps - SDK re-fetches calls when preparing destination tx.
+ * Uses PatcherMagicNumber so LiFi can patch the actual amount after bridge settlement.
+ */
+export function createGetContractCallsForUniYield(): (
+  params: import("@lifi/sdk").ContractCallParams
+) => Promise<{ contractCalls: ContractCall[]; patcher?: boolean }> {
+  return async (params) => {
+    const toToken = USDC_BY_CHAIN[BASE_CHAIN_ID];
+    if (!toToken) {
+      throw new Error("USDC not configured for Base");
+    }
+    const receiver = params.toAddress ?? params.fromAddress;
+
+    const approveCalldata = encodeFunctionData({
+      abi: erc20Abi as never,
+      functionName: "approve",
+      args: [UNIYIELD_VAULT_BASE as `0x${string}`, PatcherMagicNumber],
+    });
+
+    const depositCalldata = encodeFunctionData({
+      abi: uniyieldVaultAbi as never,
+      functionName: "deposit",
+      args: [PatcherMagicNumber, receiver as `0x${string}`],
+    });
+
+    const amountStr =
+      params.toAmount > 0n ? params.toAmount.toString() : PatcherMagicNumber.toString();
+
+    const contractCalls: ContractCall[] = [
+      {
+        fromAmount: amountStr,
+        fromTokenAddress: toToken,
+        toContractAddress: toToken,
+        toContractCallData: approveCalldata,
+        toContractGasLimit: ERC20_APPROVE_GAS,
+      },
+      {
+        fromAmount: amountStr,
+        fromTokenAddress: toToken,
+        toContractAddress: UNIYIELD_VAULT_BASE,
+        toContractCallData: depositCalldata,
+        toContractGasLimit: VAULT_DEPOSIT_GAS,
+      },
+    ];
+
+    return { contractCalls, patcher: true };
   };
 }
 

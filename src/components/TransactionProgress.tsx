@@ -16,8 +16,10 @@ interface TransactionProgressProps {
   steps: TransactionStep[];
   isComplete: boolean;
   sharesReceived?: string;
-  /** Optional tx hash for "View transaction" link (Ethereum mainnet). */
+  /** Optional tx hash for "View transaction" link. */
   txHash?: string;
+  /** Optional full tx URL (overrides txHash when both provided). */
+  txLink?: string;
 }
 
 const ETHEREUM_EXPLORER = "https://etherscan.io/tx/";
@@ -29,7 +31,9 @@ export function TransactionProgress({
   isComplete,
   sharesReceived,
   txHash,
+  txLink: txLinkProp,
 }: TransactionProgressProps) {
+  const txLink = txLinkProp ?? (txHash ? `${ETHEREUM_EXPLORER}${txHash}` : undefined);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md bg-background">
@@ -77,9 +81,9 @@ export function TransactionProgress({
                   <span className="font-medium tabular-nums">{sharesReceived}</span>
                 </div>
               )}
-              {txHash ? (
+              {txLink ? (
                 <a
-                  href={`${ETHEREUM_EXPLORER}${txHash}`}
+                  href={txLink}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-sm text-primary hover:underline"
