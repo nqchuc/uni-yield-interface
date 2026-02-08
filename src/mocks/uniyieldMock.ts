@@ -33,7 +33,7 @@ const state = {
   ]),
 
   strategies: new Map<string, StrategyInfo>([
-    [STRATEGY_IDS.AAVE, [true, 0n, 10000n, 250000_000000n, 335n]],
+    [STRATEGY_IDS.AAVE, [true, 0n, 10000n, 250000_000000n, 433n]],
     [STRATEGY_IDS.MORPHO, [true, 0n, 10000n, 1000000_000000n, 388n]],
     [STRATEGY_IDS.COMP, [true, 0n, 10000n, 0n, 310n]],
   ]),

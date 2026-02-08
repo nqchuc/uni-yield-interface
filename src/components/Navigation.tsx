@@ -12,8 +12,7 @@ import { cn } from "@/lib/utils";
 
 const navItems = [
   { label: "Vault", path: "/" },
-  { label: "UniYield", path: "/uniyield" },
-  { label: "Portfolio", path: "/portfolio" },
+  { label: "Stats", path: "/uniyield" },
   { label: "How it works", path: "/how-it-works" },
 ];
 

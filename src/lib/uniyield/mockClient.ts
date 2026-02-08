@@ -28,10 +28,10 @@ type StrategyInfo = readonly [
 const state = {
   totalAssets: 1250000_000000n,
   totalSupply: 1240000_000000n,
-  activeStrategyId: STRATEGY_IDS.MORPHO,
+  activeStrategyId: STRATEGY_IDS.AAVE,
   balances: new Map<string, bigint>(),
   strategies: new Map<string, StrategyInfo>([
-    [STRATEGY_IDS.AAVE, [true, 0n, 10000n, 250000_000000n, 335n]],
+    [STRATEGY_IDS.AAVE, [true, 0n, 10000n, 250000_000000n, 433n]],
     [STRATEGY_IDS.MORPHO, [true, 0n, 10000n, 1000000_000000n, 388n]],
     [STRATEGY_IDS.COMP, [true, 0n, 10000n, 0n, 310n]],
   ]),
