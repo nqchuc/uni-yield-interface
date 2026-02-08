@@ -1,6 +1,6 @@
 // src/mocks/uniyieldMock.ts
-export const UNIYIELD_VAULT_ADDRESS =
-  "0x1111111111111111111111111111111111111111" as const;
+// Dev-only mock for vault reads and in-memory writes. Never used in real transaction flow.
+// Real flows use config (UNIYIELD_VAULT_BASE) and on-chain calls.
 
 export const USDC_ADDRESS =
   "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48" as const;
@@ -11,12 +11,6 @@ export const STRATEGY_IDS = {
   MORPHO: "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   COMP: "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
 } as const;
-
-export const STRATEGY_NAMES: Record<string, string> = {
-  [STRATEGY_IDS.AAVE]: "Aave",
-  [STRATEGY_IDS.MORPHO]: "Morpho",
-  [STRATEGY_IDS.COMP]: "Compound",
-};
 
 type StrategyInfo = readonly [
   enabled: boolean,

@@ -1,8 +1,11 @@
 import { readContract } from "viem/actions";
 import type { PublicClient } from "viem";
 import uniyieldVaultAbi from "@/abis/uniyieldVaultUI.abi.json";
-import { mockRead, mockWrite, STRATEGY_NAMES } from "@/mocks/uniyieldMock";
-import { UNIYIELD_VAULT_ADDRESS } from "@/config/uniyield";
+import { mockRead, mockWrite } from "@/mocks/uniyieldMock";
+import {
+  UNIYIELD_VAULT_ADDRESS,
+  getStrategyDisplayName,
+} from "@/config/uniyield";
 
 export const VAULT_ABI = uniyieldVaultAbi as readonly unknown[];
 export { UNIYIELD_VAULT_ADDRESS };
@@ -86,7 +89,7 @@ export async function getStrategies(
         bigint
       ];
       const [enabled, , , , rateBps] = info;
-      const protocol = STRATEGY_NAMES[id] ?? id.slice(0, 8);
+      const protocol = getStrategyDisplayName(id);
       const status = id === activeId ? "active" : "available";
       if (enabled) {
         rows.push({ protocol, apy: formatRateBps(rateBps), status });
@@ -110,7 +113,7 @@ export async function getStrategies(
       readonly [boolean, bigint, bigint, bigint, bigint]
     >(publicClient, "getStrategyInfo", [id]);
     const [enabled, , , , rateBps] = info;
-    const protocol = STRATEGY_NAMES[id] ?? id.slice(0, 8);
+    const protocol = getStrategyDisplayName(id);
     const status = id === activeId ? "active" : "available";
     if (enabled) {
       rows.push({ protocol, apy: formatRateBps(rateBps), status });
@@ -140,7 +143,7 @@ export async function getAllocations(
           ? Number((currentAssets * 10000n) / totalAssets) / 100
           : 0;
       rows.push({
-        protocol: STRATEGY_NAMES[id] ?? id.slice(0, 8),
+        protocol: getStrategyDisplayName(id),
         percentage: Math.round(pct),
       });
     }
@@ -167,7 +170,7 @@ export async function getAllocations(
         ? Number((currentAssets * 10000n) / totalAssets) / 100
         : 0;
     rows.push({
-      protocol: STRATEGY_NAMES[id] ?? id.slice(0, 8),
+      protocol: getStrategyDisplayName(id),
       percentage: Math.round(pct),
     });
   }
@@ -193,7 +196,7 @@ export async function getVaultSummary(
     return {
       totalAssets,
       currentAPY: formatRateBps(rateBps),
-      activeProtocolName: STRATEGY_NAMES[activeId] ?? "—",
+      activeProtocolName: getStrategyDisplayName(activeId),
     };
   }
   const [totalAssets, activeId] = await Promise.all([
@@ -207,7 +210,7 @@ export async function getVaultSummary(
   return {
     totalAssets,
     currentAPY: formatRateBps(rateBps),
-    activeProtocolName: STRATEGY_NAMES[activeId] ?? "—",
+    activeProtocolName: getStrategyDisplayName(activeId),
   };
 }
 

@@ -298,8 +298,8 @@ export default function VaultPage() {
         setShowProgress(false);
         return;
       }
-      if (!receiver) {
-        toast.error("Invalid wallet");
+      if (!address || receiver === DEMO_USER_ADDRESS) {
+        toast.error("Connect wallet to deposit");
         setShowProgress(false);
         return;
       }
@@ -424,7 +424,7 @@ export default function VaultPage() {
     }
 
     // Same-chain: mock (demo) or real vault deposit on Base
-    if (!address) {
+    if (!address || receiver === DEMO_USER_ADDRESS) {
       toast.error("Connect wallet to deposit");
       setShowProgress(false);
       return;

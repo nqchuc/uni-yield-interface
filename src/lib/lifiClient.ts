@@ -3,13 +3,16 @@
  *
  * Flow: Bridge USDC to LiFi Executor on Base, then call vault.deposit(assets, receiver).
  * The Executor holds bridged USDC, approves vault, and deposits.
+ *
+ * Guaranteed amount: deposit assets = LiFi's returned contract call fromAmount (or bridge
+ * toAmountMin). Calldata is built from the amount LiFi indicates will be available.
  */
 import {
-  getQuote,
   getContractCallsQuote,
   getRoutes,
   getStatus,
   convertQuoteToRoute,
+  PatcherMagicNumber,
 } from "@lifi/sdk";
 import type {
   ContractCall,
@@ -17,7 +20,7 @@ import type {
   RoutesResponse,
   StatusResponse,
 } from "@lifi/types";
-import type { Route } from "@lifi/types";
+import type { LiFiStep, Route, Step } from "@lifi/types";
 import { encodeFunctionData, type Address } from "viem";
 import { USDC_BY_CHAIN_ID } from "@/lib/chains";
 import {
@@ -43,6 +46,37 @@ function encodeVaultDepositCalldata(
   });
 }
 
+/**
+ * Extract the guaranteed destination amount from the quote.
+ * Prefers bridge step's toAmountMin (slippage-adjusted); falls back to toAmount or top-level estimate.
+ */
+function extractGuaranteedDepositAmount(quote: LiFiStep): string {
+  const steps = quote.includedSteps ?? [];
+  const crossStep = steps.find((s: Step) => s.type === "cross") as
+    | (Step & { estimate?: { toAmountMin?: string; toAmount?: string } })
+    | undefined;
+  const customStep = steps.find((s: Step) => s.type === "custom") as
+    | (Step & { action?: { fromAmount?: string } })
+    | undefined;
+
+  if (crossStep?.estimate?.toAmountMin && BigInt(crossStep.estimate.toAmountMin) > 0n) {
+    return crossStep.estimate.toAmountMin;
+  }
+  if (crossStep?.estimate?.toAmount && BigInt(crossStep.estimate.toAmount) > 0n) {
+    return crossStep.estimate.toAmount;
+  }
+  if (customStep?.action?.fromAmount && BigInt(customStep.action.fromAmount) > 0n) {
+    return customStep.action.fromAmount;
+  }
+  if (quote.estimate?.toAmountMin && BigInt(quote.estimate.toAmountMin) > 0n) {
+    return quote.estimate.toAmountMin;
+  }
+  if (quote.estimate?.toAmount && BigInt(quote.estimate.toAmount) > 0n) {
+    return quote.estimate.toAmount;
+  }
+  throw new Error("Could not extract guaranteed destination amount from LiFi quote");
+}
+
 export interface GetQuoteDepositToUniYieldParams {
   fromChainId: number;
   fromAmount: string;
@@ -53,13 +87,10 @@ export interface GetQuoteDepositToUniYieldParams {
 
 /**
  * Get LiFi quote for cross-chain deposit into UniYield vault.
- * Uses POST /v1/quote/contractCalls (getContractCallsQuote).
+ * Uses getContractCallsQuote. Deposit amount = LiFi's guaranteed destination amount.
  *
  * Flow: Bridge to LiFi Executor, call vault.deposit(assets, receiver).
- * toFallbackAddress = beneficiary, slippage = 0.003.
- *
- * Allowance: executeRoute runs allowance check (approve on source chain if needed).
- * Status: executeRoute tracks via getStatus until DONE/FAILED.
+ * depositAssets is taken from the quote response (bridge toAmountMin), not from user input.
  */
 export async function getQuoteDepositToUniYield(
   params: GetQuoteDepositToUniYieldParams
@@ -79,29 +110,44 @@ export async function getQuoteDepositToUniYield(
     throw new Error("USDC not configured for source or Base chain");
   }
 
-  const bridgeQuote = await getQuote({
+  const initialToAmount = params.fromAmount;
+  const initialCalldata = encodeVaultDepositCalldata(
+    BigInt(initialToAmount),
+    beneficiary
+  );
+  const initialContractCalls: ContractCall[] = [
+    {
+      fromAmount: initialToAmount,
+      fromTokenAddress: toToken,
+      toContractAddress: UNIYIELD_VAULT_BASE,
+      toContractCallData: initialCalldata,
+      toContractGasLimit: VAULT_DEPOSIT_GAS,
+      toApprovalAddress: UNIYIELD_VAULT_BASE,
+    },
+  ];
+
+  const firstQuote = await getContractCallsQuote({
     fromChain: params.fromChainId,
     toChain: BASE_CHAIN_ID,
     fromToken,
     toToken,
-    fromAmount: params.fromAmount,
     fromAddress: params.userAddress,
-  });
+    fromAmount: params.fromAmount,
+    contractCalls: initialContractCalls,
+    toFallbackAddress: beneficiary,
+    denyExchanges: ["all"],
+    slippage: 0.003,
+  } as Parameters<typeof getContractCallsQuote>[0]);
 
-  const toAmount =
-    bridgeQuote.estimate?.toAmount ??
-    (bridgeQuote.action as { toAmount?: string })?.toAmount;
-  if (!toAmount) {
-    throw new Error("Could not estimate destination amount");
-  }
+  const depositAmountOut = extractGuaranteedDepositAmount(firstQuote);
 
   const depositCalldata = encodeVaultDepositCalldata(
-    BigInt(toAmount),
+    BigInt(depositAmountOut),
     beneficiary
   );
   const contractCalls: ContractCall[] = [
     {
-      fromAmount: toAmount,
+      fromAmount: depositAmountOut,
       fromTokenAddress: toToken,
       toContractAddress: UNIYIELD_VAULT_BASE,
       toContractCallData: depositCalldata,
@@ -110,7 +156,7 @@ export async function getQuoteDepositToUniYield(
     },
   ];
 
-  const contractCallQuote = await getContractCallsQuote({
+  const finalQuote = await getContractCallsQuote({
     fromChain: params.fromChainId,
     toChain: BASE_CHAIN_ID,
     fromToken,
@@ -123,23 +169,25 @@ export async function getQuoteDepositToUniYield(
     slippage: 0.003,
   } as Parameters<typeof getContractCallsQuote>[0]);
 
-  const route = convertQuoteToRoute(contractCallQuote);
+  const route = convertQuoteToRoute(finalQuote);
   (route as Route & { depositAmountOut?: string }).depositAmountOut =
-    toAmount;
+    depositAmountOut;
 
   return {
     route,
-    depositAmountOut: toAmount,
+    depositAmountOut,
   };
 }
 
 /**
  * Creates getContractCalls hook for executeRoute.
- * Returns vault.deposit(assets, receiver) with toApprovalAddress = vault.
+ * Uses LiFi patcher: encode vault.deposit(PatcherMagicNumber, receiver), return patcher: true.
+ * LiFi replaces PatcherMagicNumber in calldata with the actual amount at execution time.
+ * This fixes the Diamond swap revert (fromAmount underflow) when not using the patcher flow.
  */
 export function createGetContractCallsForUniYield(): (
   params: import("@lifi/sdk").ContractCallParams
-) => Promise<{ contractCalls: ContractCall[] }> {
+) => Promise<{ contractCalls: ContractCall[]; patcher: boolean }> {
   return async (params) => {
     if (!UNIYIELD_VAULT_BASE) {
       throw new Error(
@@ -153,17 +201,21 @@ export function createGetContractCallsForUniYield(): (
     }
 
     const beneficiary = params.fromAddress as Address;
-    const expectedAmount =
-      params.toAmount > 0n ? params.toAmount : params.fromAmount;
+    const depositAssets =
+      params.fromAmount > 0n ? params.fromAmount : params.toAmount;
+    if (depositAssets <= 0n) {
+      throw new Error("No amount available for vault deposit from LiFi quote");
+    }
+
     const depositCalldata = encodeVaultDepositCalldata(
-      expectedAmount,
+      PatcherMagicNumber,
       beneficiary
     );
 
     return {
       contractCalls: [
         {
-          fromAmount: expectedAmount.toString(),
+          fromAmount: depositAssets.toString(),
           fromTokenAddress: toToken,
           toContractAddress: UNIYIELD_VAULT_BASE,
           toContractCallData: depositCalldata,
@@ -171,6 +223,7 @@ export function createGetContractCallsForUniYield(): (
           toApprovalAddress: UNIYIELD_VAULT_BASE,
         },
       ],
+      patcher: true,
     };
   };
 }
